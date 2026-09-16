@@ -10,6 +10,7 @@ from .serializers import (
 )
 
 
+# ---------------- PROFILE ----------------
 
 class ProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
@@ -34,11 +35,14 @@ class UserSkillListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return UserSkill.objects.filter(user=self.request.user)
+        return UserSkill.objects.filter(
+            user=self.request.user
+        )
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
+        serializer.save(
+            user=self.request.user
+        )
 
 class UserSkillDeleteView(generics.DestroyAPIView):
     serializer_class = UserSkillSerializer
