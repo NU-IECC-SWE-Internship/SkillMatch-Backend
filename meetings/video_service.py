@@ -12,7 +12,6 @@ class DailyVideoService:
         self.base_url = "https://api.daily.co/v1"
 
     def create_scheduled_room(self, start_timestamp, end_timestamp):
-        # Allow room entry 10 mins early and 10 mins grace period after end
         payload = {
             "privacy": "private",
             "properties": {
@@ -27,7 +26,6 @@ class DailyVideoService:
         return response.json()
 
     def create_scheduled_token(self, room_name, user_name, start_timestamp, end_timestamp):
-        # Token is valid starting 10 minutes before start_timestamp
         payload = {
             "properties": {
                 "room_name": room_name,
@@ -39,4 +37,4 @@ class DailyVideoService:
         }
         response = requests.post(f"{self.base_url}/meeting-tokens", headers=self.headers, json=payload)
         response.raise_for_status()
-        return response.json()["token"]
+        return response.json()["token"]

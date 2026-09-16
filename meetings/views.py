@@ -19,7 +19,6 @@ class MeetingListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Only return meetings where the logged-in user is a participant
         meetings = SkillSwapMeeting.objects.filter(
             Q(participant_a=request.user) | Q(participant_b=request.user)
         ).order_by('start_time')
@@ -86,19 +85,8 @@ class SingleMeetingDetailView(APIView):
         except SkillSwapMeeting.DoesNotExist:
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Ensure requesting user is a participant
         if meeting.participant_a != request.user and meeting.participant_b != request.user:
             return Response({"error": "You do not have permission to view this meeting."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = MeetingDetailSerializer(meeting, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-class AvailablePartnersView(APIView):
-    """Returns users available to schedule a meeting with (excluding the current user)."""
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        partners = User.objects.exclude(id=request.user.id).order_by('username')
-        serializer = UserOptionSerializer(partners, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
