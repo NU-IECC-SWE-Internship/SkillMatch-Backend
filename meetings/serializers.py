@@ -15,6 +15,7 @@ class ScheduleMeetingInputSerializer(serializers.Serializer):
 class MeetingDetailSerializer(serializers.ModelSerializer):
     participant_a_name = serializers.CharField(source='participant_a.username', read_only=True)
     participant_b_name = serializers.CharField(source='participant_b.username', read_only=True)
+    partner_name = serializers.SerializerMethodField()
     my_token = serializers.SerializerMethodField()
     start_time_ts = serializers.SerializerMethodField()
     end_time_ts = serializers.SerializerMethodField()
@@ -25,11 +26,18 @@ class MeetingDetailSerializer(serializers.ModelSerializer):
             'id', 
             'participant_a_name', 
             'participant_b_name', 
+            'partner_name',
             'start_time_ts', 
             'end_time_ts', 
             'room_url', 
             'my_token'
         ]
+
+    def get_partner_name(self, obj):
+        user = self.context['request'].user
+        if obj.participant_a == user:
+            return obj.participant_b.username
+        return obj.participant_a.username
 
     def get_my_token(self, obj):
         user = self.context['request'].user
