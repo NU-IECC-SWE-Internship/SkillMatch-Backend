@@ -62,6 +62,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5173',
 ]
 
+from datetime import timedelta
+
 # Tell DRF to use JWT tokens for authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -70,6 +72,13 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': False,
 }
 
 ROOT_URLCONF = 'main.urls'
