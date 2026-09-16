@@ -22,5 +22,10 @@ from django.urls import path, include
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/", include("skillmatch.urls")),
+
+    # Your friend's authentication
+    path("api/auth/", include("skillmatch.urls")),
+
+    # Your profile feature
+    path("api/", include("skillmatch.profile_urls")),
 ]

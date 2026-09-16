@@ -1,36 +1,35 @@
 from django.urls import path
 
-from .views import (
-    ProfileView,
-    SkillListCreateView,
-    UserSkillListCreateView,
-    UserSkillDeleteView,
-    AvailabilityListCreateView,
-    AvailabilityUpdateDeleteView,
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
 )
+
+from .views import RegisterView, MeView
 
 
 urlpatterns = [
-    
-    path("profile/", ProfileView.as_view(), name="profile"),
-
-    path("skills/", SkillListCreateView.as_view(), name="skills"),
-    path("my-skills/", UserSkillListCreateView.as_view(), name="my-skills"),
     path(
-        "my-skills/<int:pk>/",
-        UserSkillDeleteView.as_view(),
-        name="delete-user-skill"
+        "register/",
+        RegisterView.as_view(),
+        name="register"
     ),
 
-    
     path(
-        "availability/",
-        AvailabilityListCreateView.as_view(),
-        name="availability"
+        "login/",
+        TokenObtainPairView.as_view(),
+        name="login"
     ),
+
     path(
-        "availability/<int:pk>/",
-        AvailabilityUpdateDeleteView.as_view(),
-        name="availability-detail"
+        "refresh/",
+        TokenRefreshView.as_view(),
+        name="token_refresh"
+    ),
+
+    path(
+        "me/",
+        MeView.as_view(),
+        name="me"
     ),
 ]

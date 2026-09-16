@@ -37,11 +37,16 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # Third-party apps
+    # Django REST Framework
     'rest_framework',
+
+    # JWT Authentication
+    'rest_framework_simplejwt',
+
+    # Allow React frontend to communicate with Django
     'corsheaders',
 
-    # Our app
+    # Project app
     'skillmatch',
 ]
 
@@ -52,17 +57,50 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
 
-    # CORS must be before CommonMiddleware
+    # CORS
     'corsheaders.middleware.CorsMiddleware',
 
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+
+# --------------------------------------------------
+# CORS
+# --------------------------------------------------
+
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+
+# --------------------------------------------------
+# CSRF
+# --------------------------------------------------
+
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+
+
+# --------------------------------------------------
+# DJANGO REST FRAMEWORK / JWT
+# --------------------------------------------------
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
 
 
 # --------------------------------------------------
@@ -78,7 +116,7 @@ ROOT_URLCONF = 'main.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'BACKEND': 'django.db.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -149,30 +187,6 @@ USE_TZ = True
 # --------------------------------------------------
 
 STATIC_URL = 'static/'
-
-
-# --------------------------------------------------
-# CORS
-# React frontend: localhost:5173
-# Django backend: localhost:8000
-# --------------------------------------------------
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
-CORS_ALLOW_CREDENTIALS = True
-
-
-# --------------------------------------------------
-# CSRF
-# --------------------------------------------------
-
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
 
 
 # --------------------------------------------------
