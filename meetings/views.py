@@ -7,11 +7,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from .models import SkillSwapMeeting
-from .serializers import (
-    MeetingDetailSerializer,
-    ScheduleMeetingInputSerializer,
-    UserOptionSerializer
-)
+from .serializers import MeetingDetailSerializer, ScheduleMeetingInputSerializer
 from .video_service import DailyVideoService
 
 
