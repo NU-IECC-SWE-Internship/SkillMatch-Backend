@@ -1,10 +1,16 @@
+from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import SkillSwapMeeting
+
+class UserOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name']
 
 class ScheduleMeetingInputSerializer(serializers.Serializer):
     user_b_id = serializers.IntegerField()
     start_iso = serializers.DateTimeField()
-    duration_minutes = serializers.IntegerField(default=60)
+    duration_minutes = serializers.IntegerField(default=60, min_value=5, max_value=480)
 
 class MeetingDetailSerializer(serializers.ModelSerializer):
     participant_a_name = serializers.CharField(source='participant_a.username', read_only=True)
