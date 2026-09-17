@@ -6,9 +6,8 @@ from django.contrib.auth.models import User
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = ["id", "user", "bio"]
+        fields = ["id", "user", "bio", "onboarding_completed"]
         read_only_fields = ["id", "user"]
-
 
 class SkillSerializer(serializers.ModelSerializer):
     class Meta:

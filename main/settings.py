@@ -77,6 +77,8 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://localhost:5174',
+        'http://127.0.0.1:5174',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -89,6 +91,8 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
 ]
 
 
@@ -116,7 +120,7 @@ ROOT_URLCONF = 'main.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.db.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -128,7 +132,6 @@ TEMPLATES = [
         },
     },
 ]
-
 
 # --------------------------------------------------
 # WSGI
