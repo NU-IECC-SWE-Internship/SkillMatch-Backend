@@ -28,4 +28,5 @@ urlpatterns = [
 
     # Your profile feature
     path("api/", include("skillmatch.profile_urls")),
+    path("api/", include("matching.urls")),
 ]

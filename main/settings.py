@@ -36,18 +36,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Django REST Framework
     'rest_framework',
-
-    # JWT Authentication
     'rest_framework_simplejwt',
-
-    # Allow React frontend to communicate with Django
     'corsheaders',
-
-    # Project app
     'skillmatch',
+    'matching',
 ]
 
 
@@ -116,11 +109,12 @@ ROOT_URLCONF = 'main.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.db.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
