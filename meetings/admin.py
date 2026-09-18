@@ -23,5 +23,4 @@ class SkillSwapMeetingAdmin(admin.ModelAdmin):
         'participant_b__username',
         'room_url',
     )
-    readonly_fields = ('room_url',)
     ordering = ('-start_time',)
