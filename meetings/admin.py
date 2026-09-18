@@ -7,11 +7,13 @@ class SkillSwapMeetingAdmin(admin.ModelAdmin):
         'id',
         'participant_a',
         'participant_b',
+        'status',
         'start_time',
         'end_time',
         'room_url'
     )
     list_filter = (
+        'status',
         'participant_a',
         'participant_b',
         'start_time',

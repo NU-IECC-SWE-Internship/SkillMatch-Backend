@@ -26,7 +26,7 @@ DAILY_API_KEY = "baa700fd29f4a5f9005c6e1bd764ee0fa0704b1327a3ac55435b3e52d887013
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -56,11 +56,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# Allow React (Vite) to call this API during development
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
+# Allow any origin to connect to the API during development (LAN devices, any IP/port)
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 
 from datetime import timedelta
 

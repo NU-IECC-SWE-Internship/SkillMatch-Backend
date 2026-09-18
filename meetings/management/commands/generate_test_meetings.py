@@ -229,6 +229,7 @@ class Command(BaseCommand):
             participant_b=p_b,
             start_time=start_time,
             end_time=end_time,
+            status=SkillSwapMeeting.STATUS_ACCEPTED,
             room_url=room_url,
             token_a=token_a,
             token_b=token_b,
