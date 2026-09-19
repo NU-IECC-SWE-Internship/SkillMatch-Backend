@@ -88,6 +88,15 @@ class AvailabilityListCreateView(generics.ListCreateAPIView):
         )
 
 
+class UserAvailabilityView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, user_id):
+        slots = AvailabilitySlot.objects.filter(user_id=user_id)
+        serializer = AvailabilitySlotSerializer(slots, many=True)
+        return Response(serializer.data)
+
+
 class AvailabilityUpdateDeleteView(
     generics.RetrieveUpdateDestroyAPIView
 ):

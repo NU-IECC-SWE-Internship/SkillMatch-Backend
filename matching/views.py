@@ -6,6 +6,10 @@ from skillmatch.models import UserSkill
 from .serializers import MatchSerializer
 
 
+def unique_skill_names(skill_names):
+    return sorted({skill_name for skill_name in skill_names if skill_name})
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def find_matches(request):
@@ -60,15 +64,17 @@ def find_matches(request):
                     .filter(user_id=user_id)
                     .first()
                     .user.username,
-                "teach_me": list(
+                "teach_me": unique_skill_names(
                     UserSkill.objects
                     .filter(user_id=user_id, skill_id__in=teach_me)
                     .values_list("skill__name", flat=True)
+                    .distinct()
                 ),
-                "teach_them": list(
+                "teach_them": unique_skill_names(
                     UserSkill.objects
                     .filter(user_id=user_id, skill_id__in=teach_them)
                     .values_list("skill__name", flat=True)
+                    .distinct()
                 ),
             })
 

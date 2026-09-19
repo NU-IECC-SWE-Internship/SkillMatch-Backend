@@ -19,10 +19,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # --------------------------------------------------
 
 SECRET_KEY = 'django-insecure-uhpcq3uu_bh4hoh48gkupzk8*@1q*9_-h$26_s13pqcme63x*s'
+DAILY_API_KEY = "baa700fd29f4a5f9005c6e1bd764ee0fa0704b1327a3ac55435b3e52d8870135"
 
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # --------------------------------------------------
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'skillmatch',
     'matching',
+    'meetings',
 ]
 
 
@@ -62,16 +64,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-
 # --------------------------------------------------
 # CORS
 # --------------------------------------------------
 
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
-
+# Allow any origin to connect to the API during development (LAN devices, any IP/port)
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 
@@ -89,10 +87,15 @@ CSRF_TRUSTED_ORIGINS = [
 # DJANGO REST FRAMEWORK / JWT
 # --------------------------------------------------
 
+from datetime import timedelta
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 }
 
 
