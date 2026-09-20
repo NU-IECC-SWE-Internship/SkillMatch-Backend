@@ -130,7 +130,8 @@ def respond_to_request(request, pk):
 
     if action in ["accept", "accepted"]:
         from meetings.views import create_meeting_for_match_request
-        meeting, err = create_meeting_for_match_request(match_request)
+        user_timezone   = request.data.get("timezone") if request.data else None
+        meeting, err = create_meeting_for_match_request(match_request, user_timezone=user_timezone)
         if err:
             err_data, err_status = err
             return Response(err_data, status=err_status)

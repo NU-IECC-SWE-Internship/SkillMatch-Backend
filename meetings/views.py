@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+import zoneinfo
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -12,12 +13,7 @@ from .serializers import MeetingSerializer
 from .video_service import DailyVideoService
 
 
-def create_meeting_for_match_request(match_request):
-    """
-    Creates a Meeting instance for the given MatchRequest by calculating start/end
-    time from the attached selected_slot and provisioning a Daily room.
-    Returns (meeting, None) on success, or (None, (error_dict, status_code)) on failure.
-    """
+def create_meeting_for_match_request(match_request, user_timezone=None):
     if hasattr(match_request, 'meeting'):
         return match_request.meeting, None
 
@@ -25,24 +21,34 @@ def create_meeting_for_match_request(match_request):
     if not slot:
         return None, ({"error": "The match request does not have an availability slot attached."}, status.HTTP_400_BAD_REQUEST)
 
-    # Calculate next occurrence of this slot on backend
+    tz_str = user_timezone or "UTC"
+    try:
+        user_tz = zoneinfo.ZoneInfo(tz_str)
+    except Exception:
+        user_tz = zoneinfo.ZoneInfo("UTC")
+
+    now_user = timezone.now().astimezone(user_tz)
+
     day_map = {
         "monday": 0, "tuesday": 1, "wednesday": 2,
         "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
     }
-    now = timezone.now()
     target_weekday = day_map.get(slot.day.lower(), 0)
-    days_ahead = (target_weekday - now.weekday() + 7) % 7
-    target_date = now.date() + timedelta(days=days_ahead)
-    start_time = timezone.make_aware(datetime.combine(target_date, slot.start_time))
-    end_time = timezone.make_aware(datetime.combine(target_date, slot.end_time))
+    days_ahead = (target_weekday - now_user.weekday() + 7) % 7
+    target_date = now_user.date() + timedelta(days=days_ahead)
 
-    if start_time <= now:
-        start_time += timedelta(days=7)
-        end_time += timedelta(days=7)
+    user_start = datetime.combine(target_date, slot.start_time).replace(tzinfo=user_tz)
+    user_end = datetime.combine(target_date, slot.end_time).replace(tzinfo=user_tz)
 
-    start_ts = int(start_time.timestamp())
-    end_ts = int(end_time.timestamp())
+    if user_start <= now_user:
+        user_start += timedelta(days=7)
+        user_end += timedelta(days=7)
+
+    start_time_utc = user_start.astimezone(dt_timezone.utc)
+    end_time_utc = user_end.astimezone(dt_timezone.utc)
+
+    start_ts = int(start_time_utc.timestamp())
+    end_ts = int(end_time_utc.timestamp())
     service = DailyVideoService()
 
     try:
@@ -54,8 +60,8 @@ def create_meeting_for_match_request(match_request):
 
     meeting = Meeting.objects.create(
         request=match_request,
-        start_time=start_time,
-        end_time=end_time,
+        start_time=start_time_utc,
+        end_time=end_time_utc,
         status="SCHEDULED",
         room_url=room_data['url'],
         room_name=room_data['name'],
@@ -90,6 +96,7 @@ class MeetingListCreateView(APIView):
 
     def post(self, request):
         request_id = request.data.get('request_id')
+        user_timezone = request.data.get('timezone') or request.headers.get('X-Timezone')
         if not request_id:
             return Response({"error": "request_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -101,7 +108,7 @@ class MeetingListCreateView(APIView):
         if request.user not in (match_request.sender, match_request.receiver):
             return Response({"error": "You do not have permission to schedule this meeting."}, status=status.HTTP_403_FORBIDDEN)
 
-        meeting, err = create_meeting_for_match_request(match_request)
+        meeting, err = create_meeting_for_match_request(match_request, user_timezone=user_timezone)
         if err:
             err_data, err_status = err
             return Response(err_data, status=err_status)
