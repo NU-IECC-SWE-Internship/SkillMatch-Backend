@@ -1,19 +1,45 @@
-from rest_framework import serializers
-from .models import Profile, Skill, UserSkill, AvailabilitySlot
-
 from django.contrib.auth.models import User
+from rest_framework import serializers
+
+from .models import (
+    Profile,
+    Skill,
+    UserSkill,
+    AvailabilitySlot,
+)
+
 
 class ProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(
+        source="user.username",
+        read_only=True
+    )
+
     class Meta:
         model = Profile
-        fields = ["id", "user", "bio", "onboarding_completed"]
-        read_only_fields = ["id", "user"]
+        fields = [
+            "id",
+            "user",
+            "username",
+            "bio",
+            "onboarding_completed",
+            "max_session_duration_minutes",
+        ]
+
+        read_only_fields = [
+            "id",
+            "user",
+            "username",
+        ]
 
 
 class SkillSerializer(serializers.ModelSerializer):
     class Meta:
         model = Skill
-        fields = ["id", "name"]
+        fields = [
+            "id",
+            "name",
+        ]
 
 
 class UserSkillSerializer(serializers.ModelSerializer):
@@ -28,7 +54,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "id",
             "skill",
             "skill_name",
-            "skill_type"
+            "skill_type",
         ]
 
 
@@ -39,33 +65,44 @@ class AvailabilitySlotSerializer(serializers.ModelSerializer):
             "id",
             "day",
             "start_time",
-            "end_time"
+            "end_time",
         ]
 
 
-
 class RegisterSerializer(serializers.ModelSerializer):
-    # write_only = True means password is accepted as input,
-    # but never returned in the API response
-    password = serializers.CharField(write_only=True, min_length=6)
+    password = serializers.CharField(
+        write_only=True,
+        min_length=6
+    )
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password']
+        fields = [
+            "id",
+            "username",
+            "email",
+            "password",
+        ]
 
     def create(self, validated_data):
-        # create_user hashes the password for you
         user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''),
-            password=validated_data['password'],
+            username=validated_data["username"],
+            email=validated_data.get("email", ""),
+            password=validated_data["password"],
         )
-        Profile.objects.get_or_create(user=user)
+
+        Profile.objects.get_or_create(
+            user=user
+        )
+
         return user
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email']
-
+        fields = [
+            "id",
+            "username",
+            "email",
+        ]
