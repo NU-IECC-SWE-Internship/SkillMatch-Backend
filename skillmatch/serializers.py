@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = ["id", "user", "bio"]
+        fields = ["id", "user", "bio", "onboarding_completed"]
         read_only_fields = ["id", "user"]
 
 
@@ -60,6 +60,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             email=validated_data.get('email', ''),
             password=validated_data['password'],
         )
+        Profile.objects.get_or_create(user=user)
         return user
 
 
