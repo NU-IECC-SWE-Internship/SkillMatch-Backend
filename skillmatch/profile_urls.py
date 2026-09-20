@@ -6,6 +6,7 @@ from .views import (
     UserSkillListCreateView,
     UserSkillDeleteView,
     AvailabilityListCreateView,
+    UserAvailabilityView,
     AvailabilityUpdateDeleteView,
 )
 
@@ -27,6 +28,12 @@ urlpatterns = [
         "availability/",
         AvailabilityListCreateView.as_view(),
         name="availability",
+    ),
+
+    path(
+        "users/<int:user_id>/availability/",
+        UserAvailabilityView.as_view(),
+        name="user-availability",
     ),
 
     path(
