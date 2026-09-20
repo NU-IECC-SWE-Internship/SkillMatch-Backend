@@ -165,10 +165,8 @@ def respond_to_request(request, pk):
         )
 
     if action == "accept":
-
         match_req.status = "ACCEPTED"
         match_req.rejection_reason = None
-
         match_req.save(
             update_fields=[
                 "status",
@@ -176,22 +174,19 @@ def respond_to_request(request, pk):
             ]
         )
 
-        room_token = uuid.uuid4().hex[:12]
-
-        meeting = Meeting.objects.create(
-            host=match_req.receiver,
-            guest=match_req.sender,
-            skill=match_req.skill,
-            room_id=room_token,
-            status="SCHEDULED",
-        )
+        from meetings.views import create_meeting_for_match_request
+        user_timezone = request.data.get("timezone") if request.data else None
+        meeting, err = create_meeting_for_match_request(match_req, user_timezone=user_timezone)
+        if err:
+            err_data, err_status = err
+            return Response(err_data, status=err_status)
 
         return Response(
             {
                 "message": "Request accepted and meeting scheduled successfully.",
                 "status": "ACCEPTED",
                 "meeting_id": meeting.id,
-                "room_id": meeting.room_id,
+                "room_url": meeting.room_url,
             },
             status=status.HTTP_200_OK,
         )
