@@ -110,3 +110,39 @@ def get_requests(request):
     serializer = MatchRequestSerializer(requests, many=True)
 
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def respond_to_request(request, pk):
+    try:
+        match_request = MatchRequest.objects.select_related(
+            "sender", "receiver", "selected_slot"
+        ).get(pk=pk)
+    except MatchRequest.DoesNotExist:
+        return Response({"error": "Request not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.user != match_request.receiver:
+        return Response({"error": "Only the receiver can respond to this request."}, status=status.HTTP_403_FORBIDDEN)
+
+    raw_action = request.data.get("action") if request.data else None
+    action = str(raw_action).lower() if raw_action else "reject"
+
+    if action in ["accept", "accepted"]:
+        from meetings.views import create_meeting_for_match_request
+        meeting, err = create_meeting_for_match_request(match_request)
+        if err:
+            err_data, err_status = err
+            return Response(err_data, status=err_status)
+        return Response({
+            "message": "Request accepted and meeting scheduled.",
+            "status": "ACCEPTED",
+            "meeting_id": meeting.id,
+        }, status=status.HTTP_200_OK)
+
+    if action in ["reject", "decline"]:
+        match_request.status = "REJECTED"
+        match_request.save(update_fields=["status"])
+        return Response({"message": "Request declined.", "status": "REJECTED"}, status=status.HTTP_200_OK)
+
+    return Response({"error": f"Invalid action '{raw_action}'."}, status=status.HTTP_400_BAD_REQUEST)

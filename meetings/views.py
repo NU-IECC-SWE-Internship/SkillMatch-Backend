@@ -1,15 +1,72 @@
-from django.contrib.auth.models import User
+from datetime import datetime, timedelta
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
-from .models import SkillSwapMeeting
-from .serializers import (
-    MeetingDetailSerializer,
-)
+from matching.models import MatchRequest
+from .models import Meeting
+from .serializers import MeetingSerializer
 from .video_service import DailyVideoService
+
+
+def create_meeting_for_match_request(match_request):
+    """
+    Creates a Meeting instance for the given MatchRequest by calculating start/end
+    time from the attached selected_slot and provisioning a Daily room.
+    Returns (meeting, None) on success, or (None, (error_dict, status_code)) on failure.
+    """
+    if hasattr(match_request, 'meeting'):
+        return match_request.meeting, None
+
+    slot = getattr(match_request, 'selected_slot', None)
+    if not slot:
+        return None, ({"error": "The match request does not have an availability slot attached."}, status.HTTP_400_BAD_REQUEST)
+
+    # Calculate next occurrence of this slot on backend
+    day_map = {
+        "monday": 0, "tuesday": 1, "wednesday": 2,
+        "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
+    }
+    now = timezone.now()
+    target_weekday = day_map.get(slot.day.lower(), 0)
+    days_ahead = (target_weekday - now.weekday() + 7) % 7
+    target_date = now.date() + timedelta(days=days_ahead)
+    start_time = timezone.make_aware(datetime.combine(target_date, slot.start_time))
+    end_time = timezone.make_aware(datetime.combine(target_date, slot.end_time))
+
+    if start_time <= now:
+        start_time += timedelta(days=7)
+        end_time += timedelta(days=7)
+
+    start_ts = int(start_time.timestamp())
+    end_ts = int(end_time.timestamp())
+    service = DailyVideoService()
+
+    try:
+        room_data = service.create_scheduled_room(start_ts, end_ts)
+        token_sender = service.create_scheduled_token(room_data['name'], match_request.sender.username, start_ts, end_ts)
+        token_receiver = service.create_scheduled_token(room_data['name'], match_request.receiver.username, start_ts, end_ts)
+    except Exception as e:
+        return None, ({"error": f"Video service error: {str(e)}"}, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    meeting = Meeting.objects.create(
+        request=match_request,
+        start_time=start_time,
+        end_time=end_time,
+        status="SCHEDULED",
+        room_url=room_data['url'],
+        room_name=room_data['name'],
+        token_sender=token_sender,
+        token_receiver=token_receiver,
+    )
+
+    match_request.status = "ACCEPTED"
+    match_request.save(update_fields=['status'])
+
+    return meeting, None
 
 
 class MeetingListCreateView(APIView):
@@ -17,152 +74,70 @@ class MeetingListCreateView(APIView):
 
     def get(self, request):
         status_param = request.query_params.get('status')
-        meetings = SkillSwapMeeting.objects.filter(
-            Q(participant_a=request.user) | Q(participant_b=request.user)
-        )
+        meetings = Meeting.objects.filter(
+            Q(request__sender=request.user) | Q(request__receiver=request.user)
+        ).select_related('request__sender', 'request__receiver', 'request__skill')
+
         if status_param:
-            meetings = meetings.filter(status=status_param)
+            if status_param.lower() in ['accepted', 'scheduled']:
+                meetings = meetings.filter(status='SCHEDULED')
+            else:
+                meetings = meetings.filter(status__iexact=status_param)
 
         meetings = meetings.order_by('start_time')
-        serializer = MeetingDetailSerializer(meetings, many=True, context={'request': request})
+        serializer = MeetingSerializer(meetings, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request): #write post method for creating pending meeting.
-        pass
+    def post(self, request):
+        request_id = request.data.get('request_id')
+        if not request_id:
+            return Response({"error": "request_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            match_request = MatchRequest.objects.select_related('sender', 'receiver', 'selected_slot').get(pk=request_id)
+        except MatchRequest.DoesNotExist:
+            return Response({"error": "Match request not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user not in (match_request.sender, match_request.receiver):
+            return Response({"error": "You do not have permission to schedule this meeting."}, status=status.HTTP_403_FORBIDDEN)
+
+        meeting, err = create_meeting_for_match_request(match_request)
+        if err:
+            err_data, err_status = err
+            return Response(err_data, status=err_status)
+
+        return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
 
 class SingleMeetingDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         try:
-            meeting = SkillSwapMeeting.objects.get(pk=pk)
-        except SkillSwapMeeting.DoesNotExist:
+            meeting = Meeting.objects.select_related(
+                'request__sender', 'request__receiver', 'request__skill'
+            ).get(pk=pk)
+        except Meeting.DoesNotExist:
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if meeting.participant_a != request.user and meeting.participant_b != request.user:
-            return Response(
-                {"error": "You do not have permission to view this meeting."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if request.user not in (meeting.request.sender, meeting.request.receiver):
+            return Response({"error": "You do not have permission to access this meeting."}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = MeetingDetailSerializer(meeting, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
 
-    def put(self, request, pk):
-        return self.patch(request, pk)
-
-    def patch(self, request, pk):
+    def delete(self, request, pk):
         try:
-            meeting = SkillSwapMeeting.objects.get(pk=pk)
-        except SkillSwapMeeting.DoesNotExist:
+            meeting = Meeting.objects.select_related(
+                'request__sender', 'request__receiver', 'request__skill'
+            ).get(pk=pk)
+        except Meeting.DoesNotExist:
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if meeting.participant_a != request.user and meeting.participant_b != request.user:
-            return Response(
-                {"error": "You do not have permission to modify this meeting."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if request.user not in (meeting.request.sender, meeting.request.receiver):
+            return Response({"error": "You do not have permission to cancel this meeting."}, status=status.HTTP_403_FORBIDDEN)
 
-        new_status = request.data.get('status')
-        valid_statuses = [
-            SkillSwapMeeting.STATUS_ACCEPTED,
-            SkillSwapMeeting.STATUS_REJECTED,
-            SkillSwapMeeting.STATUS_CANCELLED,
-        ]
-        if new_status not in valid_statuses:
-            return Response(
-                {"error": f"Invalid status '{new_status}'. Allowed values: {valid_statuses}."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if new_status == SkillSwapMeeting.STATUS_ACCEPTED:
-            if request.user != meeting.participant_b:
-                return Response(
-                    {"error": "Only the invited partner (User B) can accept this meeting request."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-            if meeting.status != SkillSwapMeeting.STATUS_PENDING:
-                return Response(
-                    {"error": f"Cannot accept a meeting with status '{meeting.status}'. Only 'pending' requests can be accepted."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            overlapping_meetings = SkillSwapMeeting.objects.filter(
-                Q(participant_a=meeting.participant_b) | Q(participant_b=meeting.participant_b),
-                status=SkillSwapMeeting.STATUS_ACCEPTED,
-                start_time__lt=meeting.end_time,
-                end_time__gt=meeting.start_time
-            ).exclude(pk=meeting.pk)
-
-            if overlapping_meetings.exists():
-                conflicting = overlapping_meetings.first()
-                return Response(
-                    {
-                        "error": "You already have another accepted meeting overlapping with this time window.",
-                        "conflicting_meeting_id": conflicting.id,
-                        "conflicting_start": conflicting.start_time.isoformat(),
-                        "conflicting_end": conflicting.end_time.isoformat(),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            start_ts = int(meeting.start_time.timestamp())
-            end_ts = int(meeting.end_time.timestamp())
-
-            service = DailyVideoService()
-            try:
-                room_data = service.create_scheduled_room(start_ts, end_ts)
-                room_name = room_data['name']
-
-                token_a = service.create_scheduled_token(
-                    room_name, meeting.participant_a.username, start_ts, end_ts
-                )
-                token_b = service.create_scheduled_token(
-                    room_name, meeting.participant_b.username, start_ts, end_ts
-                )
-            except Exception as e:
-                return Response(
-                    {"error": f"Video service error: {str(e)}"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
-
-            meeting.room_url = room_data['url']
-            meeting.token_a = token_a
-            meeting.token_b = token_b
-            meeting.status = SkillSwapMeeting.STATUS_ACCEPTED
-            meeting.save()
-
-        elif new_status == SkillSwapMeeting.STATUS_REJECTED:
-            if request.user != meeting.participant_b:
-                return Response(
-                    {"error": "Only the invited partner (User B) can reject this meeting request."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            if meeting.status != SkillSwapMeeting.STATUS_PENDING:
-                return Response(
-                    {"error": f"Cannot reject a meeting with status '{meeting.status}'."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            meeting.status = SkillSwapMeeting.STATUS_REJECTED
-            meeting.save()
-
-        elif new_status == SkillSwapMeeting.STATUS_CANCELLED:
-            if request.user != meeting.participant_a:
-                return Response(
-                    {"error": "Only the meeting requester can cancel this meeting."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            if meeting.status not in [SkillSwapMeeting.STATUS_PENDING, SkillSwapMeeting.STATUS_ACCEPTED]:
-                return Response(
-                    {"error": f"Cannot cancel a meeting with status '{meeting.status}'."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            meeting.status = SkillSwapMeeting.STATUS_CANCELLED
-            meeting.save()
-
-        output_serializer = MeetingDetailSerializer(meeting, context={'request': request})
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
-
-    def delete(self, request, pk): #write delete method for deleting meeting.
-        pass
+        meeting.status = "CANCELLED"
+        meeting.save(update_fields=['status'])
+        meeting.request.status = "CANCELLED"
+        meeting.request.save(update_fields=['status'])
+        return Response({"message": "Meeting cancelled successfully."}, status=status.HTTP_200_OK)

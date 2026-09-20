@@ -1,26 +1,33 @@
 from django.contrib import admin
-from .models import SkillSwapMeeting
+from .models import Meeting
 
-@admin.register(SkillSwapMeeting)
-class SkillSwapMeetingAdmin(admin.ModelAdmin):
+@admin.register(Meeting)
+class MeetingAdmin(admin.ModelAdmin):
     list_display = (
         'id',
-        'participant_a',
-        'participant_b',
+        'get_sender',
+        'get_receiver',
         'status',
         'start_time',
         'end_time',
-        'room_url'
+        'room_url',
     )
     list_filter = (
         'status',
-        'participant_a',
-        'participant_b',
         'start_time',
     )
     search_fields = (
-        'participant_a__username',
-        'participant_b__username',
+        'request__sender__username',
+        'request__receiver__username',
         'room_url',
+        'room_name',
     )
     ordering = ('-start_time',)
+
+    @admin.display(description='Sender')
+    def get_sender(self, obj):
+        return obj.request.sender.username
+
+    @admin.display(description='Receiver')
+    def get_receiver(self, obj):
+        return obj.request.receiver.username
