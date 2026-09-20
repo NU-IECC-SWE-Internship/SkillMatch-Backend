@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from skillmatch.models import UserSkill
 from .serializers import MatchSerializer
 from .models import MatchRequest
-from meetings.models import SkillSwapMeeting
+from meetings.models import Meeting
 from .serializers import MatchRequestSerializer
 
 def unique_skill_names(skill_names):
@@ -178,7 +178,7 @@ def respond_to_request(request, pk):
 
         room_token = uuid.uuid4().hex[:12]
 
-        meeting = SkillSwapMeeting.objects.create(
+        meeting = Meeting.objects.create(
             host=match_req.receiver,
             guest=match_req.sender,
             skill=match_req.skill,
