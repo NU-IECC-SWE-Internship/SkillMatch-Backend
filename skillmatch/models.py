@@ -3,6 +3,30 @@ from django.conf import settings
 
 
 class Profile(models.Model):
+
+    SESSION_DURATION_CHOICES = [
+    (15, "15 minutes"),
+    (30, "30 minutes"),
+    (45, "45 minutes"),
+
+    (60, "1 hour"),
+    (75, "1 hour 15 minutes"),
+    (90, "1 hour 30 minutes"),
+    (105, "1 hour 45 minutes"),
+
+    (120, "2 hours"),
+    (135, "2 hours 15 minutes"),
+    (150, "2 hours 30 minutes"),
+    (165, "2 hours 45 minutes"),
+
+    (180, "3 hours"),
+    (195, "3 hours 15 minutes"),
+    (210, "3 hours 30 minutes"),
+    (225, "3 hours 45 minutes"),
+
+    (240, "4 hours"),
+]
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -10,20 +34,32 @@ class Profile(models.Model):
     )
 
     bio = models.TextField(blank=True)
-    onboarding_completed = models.BooleanField(default=False)
+
+    onboarding_completed = models.BooleanField(
+        default=False
+    )
+
+    max_session_duration_minutes = models.PositiveIntegerField(
+        choices=SESSION_DURATION_CHOICES,
+        default=120
+    )
 
     def __str__(self):
         return self.user.username
 
 
 class Skill(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(
+        max_length=100,
+        unique=True
+    )
 
     def __str__(self):
         return self.name
 
 
 class UserSkill(models.Model):
+
     SKILL_TYPES = [
         ("teach", "Teach"),
         ("learn", "Learn"),
@@ -49,16 +85,25 @@ class UserSkill(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "skill", "skill_type"],
+                fields=[
+                    "user",
+                    "skill",
+                    "skill_type"
+                ],
                 name="unique_user_skill_type"
             )
         ]
 
     def __str__(self):
-        return f"{self.user.username} - {self.skill.name} - {self.skill_type}"
+        return (
+            f"{self.user.username} - "
+            f"{self.skill.name} - "
+            f"{self.skill_type}"
+        )
 
 
 class AvailabilitySlot(models.Model):
+
     DAYS = [
         ("monday", "Monday"),
         ("tuesday", "Tuesday"),
@@ -81,7 +126,12 @@ class AvailabilitySlot(models.Model):
     )
 
     start_time = models.TimeField()
+
     end_time = models.TimeField()
 
     def __str__(self):
-        return f"{self.user.username} - {self.day} {self.start_time} to {self.end_time}"
+        return (
+            f"{self.user.username} - "
+            f"{self.day} "
+            f"{self.start_time} to {self.end_time}"
+        )
