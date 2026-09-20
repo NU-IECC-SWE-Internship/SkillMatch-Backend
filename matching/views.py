@@ -2,10 +2,12 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-
+import uuid
+from django.shortcuts import get_object_or_404
 from skillmatch.models import UserSkill
 from .serializers import MatchSerializer
 from .models import MatchRequest
+from meetings.models import SkillSwapMeeting
 from .serializers import MatchRequestSerializer
 
 def unique_skill_names(skill_names):
@@ -108,5 +110,109 @@ def get_requests(request):
     )
 
     serializer = MatchRequestSerializer(requests, many=True)
+
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def respond_to_request(request, pk):
+    match_req = get_object_or_404(
+        MatchRequest,
+        pk=pk,
+        receiver=request.user
+    )
+
+    if match_req.status != "PENDING":
+        return Response(
+            {"error": "This request has already been processed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    action = str(
+        request.data.get("action", "")
+    ).strip().lower()
+
+    if action == "reject":
+
+        rejection_reason = str(
+            request.data.get("rejection_reason", "")
+        ).strip()
+
+        if not rejection_reason:
+            return Response(
+                {
+                    "error": "A rejection reason is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_req.status = "REJECTED"
+        match_req.rejection_reason = rejection_reason
+        match_req.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Request rejected.",
+                "status": "REJECTED",
+                "rejection_reason": rejection_reason,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "accept":
+
+        match_req.status = "ACCEPTED"
+        match_req.rejection_reason = None
+
+        match_req.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+            ]
+        )
+
+        room_token = uuid.uuid4().hex[:12]
+
+        meeting = SkillSwapMeeting.objects.create(
+            host=match_req.receiver,
+            guest=match_req.sender,
+            skill=match_req.skill,
+            room_id=room_token,
+            status="SCHEDULED",
+        )
+
+        return Response(
+            {
+                "message": "Request accepted and meeting scheduled successfully.",
+                "status": "ACCEPTED",
+                "meeting_id": meeting.id,
+                "room_id": meeting.room_id,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    return Response(
+        {
+            "error": "Invalid action.",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_sent_requests(request):
+    requests = MatchRequest.objects.filter(
+        sender=request.user
+    ).order_by("-id")
+
+    serializer = MatchRequestSerializer(
+        requests,
+        many=True
+    )
 
     return Response(serializer.data)

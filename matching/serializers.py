@@ -44,6 +44,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "selected_slot_start_time",
             "selected_slot_end_time",
             "status",
+            "rejection_reason",
         ]
         read_only_fields = [
             "id",
@@ -55,6 +56,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "selected_slot_start_time",
             "selected_slot_end_time",
             "status",
+            "rejection_reason",
         ]
 
     def validate(self, attrs):

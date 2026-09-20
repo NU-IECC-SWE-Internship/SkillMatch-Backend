@@ -35,3 +35,7 @@ class MatchRequest(models.Model):
         ],
         default="PENDING"
     )
+    rejection_reason = models.TextField(
+        blank=True,
+        null=True
+    )
