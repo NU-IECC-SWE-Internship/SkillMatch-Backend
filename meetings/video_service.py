@@ -16,8 +16,8 @@ class DailyVideoService:
             "privacy": "private",
             "properties": {
                 "max_participants": 2,
-                "nbf": start_timestamp - 600,
-                "exp": end_timestamp + 600,
+                "nbf": start_timestamp - 900,
+                "exp": end_timestamp + 1800,
                 "enable_screenshare": True,
             }
         }
@@ -31,8 +31,8 @@ class DailyVideoService:
                 "room_name": room_name,
                 "user_name": user_name,
                 "is_owner": False,
-                "nbf": start_timestamp - 600,
-                "exp": end_timestamp + 600,
+                "nbf": start_timestamp - 900,
+                "exp": end_timestamp + 1800,
             }
         }
         response = requests.post(f"{self.base_url}/meeting-tokens", headers=self.headers, json=payload)
