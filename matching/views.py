@@ -2,12 +2,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-import uuid
 from django.shortcuts import get_object_or_404
 from skillmatch.models import UserSkill
 from .serializers import MatchSerializer
 from .models import MatchRequest
-from meetings.models import Meeting
 from .serializers import MatchRequestSerializer
 
 def unique_skill_names(skill_names):
@@ -117,9 +115,14 @@ def get_requests(request):
 @permission_classes([IsAuthenticated])
 def respond_to_request(request, pk):
     match_req = get_object_or_404(
-        MatchRequest,
+        MatchRequest.objects.select_related(
+            "sender",
+            "receiver",
+            "selected_slot",
+            "skill",
+        ),
         pk=pk,
-        receiver=request.user
+        receiver=request.user,
     )
 
     if match_req.status != "PENDING":
@@ -165,18 +168,15 @@ def respond_to_request(request, pk):
         )
 
     if action == "accept":
-        match_req.status = "ACCEPTED"
-        match_req.rejection_reason = None
-        match_req.save(
-            update_fields=[
-                "status",
-                "rejection_reason",
-            ]
-        )
-
+        # Do NOT mark ACCEPTED until the meeting is created successfully.
+        # Otherwise the UI shows an error while the DB already changed.
         from meetings.views import create_meeting_for_match_request
+
         user_timezone = request.data.get("timezone") if request.data else None
-        meeting, err = create_meeting_for_match_request(match_req, user_timezone=user_timezone)
+        meeting, err = create_meeting_for_match_request(
+            match_req,
+            user_timezone=user_timezone,
+        )
         if err:
             err_data, err_status = err
             return Response(err_data, status=err_status)
