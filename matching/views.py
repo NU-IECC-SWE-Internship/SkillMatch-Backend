@@ -9,6 +9,7 @@ from .serializers import MatchSerializer
 from .models import MatchRequest
 from meetings.models import Meeting
 from .serializers import MatchRequestSerializer
+from django.contrib.auth import get_user_model
 
 def unique_skill_names(skill_names):
     return sorted({skill_name for skill_name in skill_names if skill_name})
@@ -230,3 +231,65 @@ def get_sent_requests(request):
     )
 
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_teachers(request):
+    user = request.user
+
+    # Skills that THIS user wants to learn
+    my_learning_skills = UserSkill.objects.filter(
+        user=user,
+        skill_type="learn"
+    ).select_related("skill")
+
+    learning_skill_ids = [
+        user_skill.skill_id
+        for user_skill in my_learning_skills
+    ]
+
+    # Optional filter
+    skill_id = request.query_params.get("skill")
+
+    teaching_skills = UserSkill.objects.filter(
+        skill_type="teach",
+        skill_id__in=learning_skill_ids
+    ).select_related("user", "skill")
+
+    if skill_id:
+        teaching_skills = teaching_skills.filter(
+            skill_id=skill_id
+        )
+
+    teachers = {}
+
+    for user_skill in teaching_skills:
+        teacher = user_skill.user
+
+        # Don't show yourself
+        if teacher.id == user.id:
+            continue
+
+        if teacher.id not in teachers:
+            teachers[teacher.id] = {
+                "user_id": teacher.id,
+                "username": teacher.username,
+                "skills": []
+            }
+
+        teachers[teacher.id]["skills"].append({
+            "id": user_skill.skill.id,
+            "name": user_skill.skill.name
+        })
+
+    return Response({
+        "learning_skills": [
+            {
+                "id": user_skill.skill.id,
+                "name": user_skill.skill.name
+            }
+            for user_skill in my_learning_skills
+        ],
+        "teachers": list(teachers.values())
+    })
