@@ -14,20 +14,11 @@ class MatchRequestSerializer(serializers.ModelSerializer):
     sender_username = serializers.CharField(source="sender.username", read_only=True)
     receiver_username = serializers.CharField(source="receiver.username", read_only=True)
     skill_name = serializers.CharField(source="skill.name", read_only=True)
-    selected_slot_day = serializers.CharField(
-        source="selected_slot.day",
-        read_only=True,
-    )
-    selected_slot_start_time = serializers.TimeField(
-        source="selected_slot.start_time",
-        read_only=True,
-        format="%H:%M",
-    )
-    selected_slot_end_time = serializers.TimeField(
-        source="selected_slot.end_time",
-        read_only=True,
-        format="%H:%M",
-    )
+    selected_slot_day = serializers.CharField(source="selected_slot.day", read_only=True)
+    selected_slot_start_time = serializers.TimeField(source="selected_slot.start_time", read_only=True, format="%H:%M")
+    selected_slot_end_time = serializers.TimeField(source="selected_slot.end_time", read_only=True, format="%H:%M")
+    receiver_skill_name = serializers.CharField(source="receiver_skill.name", read_only=True)
+    sender_teach_skills = serializers.SerializerMethodField()
 
     class Meta:
         model = MatchRequest
@@ -45,6 +36,8 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "selected_slot_end_time",
             "status",
             "rejection_reason",
+            "receiver_skill_name",
+            "sender_teach_skills",
         ]
         read_only_fields = [
             "id",
@@ -57,6 +50,27 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "selected_slot_end_time",
             "status",
             "rejection_reason",
+            "receiver_skill_name",
+            "sender_teach_skills",
+        ]
+
+    def get_sender_teach_skills(self, obj):
+        receiver_learn_skill_ids = set(
+            UserSkill.objects.filter(
+                user=obj.receiver,
+                skill_type="learn"
+            ).values_list("skill_id", flat=True)
+        )
+
+        user_skills = UserSkill.objects.filter(
+            user=obj.sender,
+            skill_type="teach",
+            skill_id__in=receiver_learn_skill_ids,
+        ).select_related("skill").order_by("skill__name")
+
+        return [
+            {"id": item.skill_id, "name": item.skill.name}
+            for item in user_skills
         ]
 
     def validate(self, attrs):

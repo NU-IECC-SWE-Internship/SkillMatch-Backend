@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 import uuid
 from django.shortcuts import get_object_or_404
-from skillmatch.models import UserSkill
+from skillmatch.models import UserSkill, Skill
 from .serializers import MatchSerializer
 from .models import MatchRequest
 from meetings.models import Meeting
@@ -165,12 +165,29 @@ def respond_to_request(request, pk):
         )
 
     if action == "accept":
+        receiver_skill_id = request.data.get("receiver_skill") if request.data else None
+        if receiver_skill_id is None:
+            return Response(
+                {"error": "A skill must be selected to accept this request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            receiver_skill = Skill.objects.get(pk=receiver_skill_id)
+        except Skill.DoesNotExist:
+            return Response(
+                {"error": "Selected skill is invalid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_req.receiver_skill = receiver_skill
         match_req.status = "ACCEPTED"
         match_req.rejection_reason = None
         match_req.save(
             update_fields=[
                 "status",
                 "rejection_reason",
+                "receiver_skill",
             ]
         )
 
@@ -187,6 +204,8 @@ def respond_to_request(request, pk):
                 "status": "ACCEPTED",
                 "meeting_id": meeting.id,
                 "room_url": meeting.room_url,
+                "receiver_skill": receiver_skill.id,
+                "receiver_skill_name": receiver_skill.name,
             },
             status=status.HTTP_200_OK,
         )

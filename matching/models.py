@@ -39,3 +39,10 @@ class MatchRequest(models.Model):
         blank=True,
         null=True
     )
+    receiver_skill = models.ForeignKey(
+        Skill,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="received_match_requests"
+    )
