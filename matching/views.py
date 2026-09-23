@@ -60,12 +60,11 @@ def find_matches(request):
         teach_them = teach & their_learn
 
         if teach_me and teach_them:
+            matched_user = UserSkill.objects.filter(user_id=user_id).select_related('user__profile').first().user
+            profile = getattr(matched_user, 'profile', None)
             matches.append({
                 "user_id": user_id,
-                "username": UserSkill.objects
-                    .filter(user_id=user_id)
-                    .first()
-                    .user.username,
+                "username": matched_user.username,
                 "teach_me": unique_skill_names(
                     UserSkill.objects
                     .filter(user_id=user_id, skill_id__in=teach_me)
@@ -78,6 +77,8 @@ def find_matches(request):
                     .values_list("skill__name", flat=True)
                     .distinct()
                 ),
+                "rating_average": profile.rating_average if profile else 0.0,
+                "rating_count": profile.rating_count if profile else 0,
             })
 
     return Response(MatchSerializer(matches, many=True).data)

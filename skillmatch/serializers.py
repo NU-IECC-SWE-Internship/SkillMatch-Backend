@@ -24,12 +24,16 @@ class ProfileSerializer(serializers.ModelSerializer):
             "bio",
             "onboarding_completed",
             "max_session_duration_minutes",
+            "rating_average",
+            "rating_count",
         ]
 
         read_only_fields = [
             "id",
             "user",
             "username",
+            "rating_average",
+            "rating_count",
         ]
 
 

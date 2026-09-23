@@ -8,6 +8,8 @@ class MatchSerializer(serializers.Serializer):
     username = serializers.CharField()
     teach_me = serializers.ListField(child=serializers.CharField())
     teach_them = serializers.ListField(child=serializers.CharField())
+    rating_average = serializers.FloatField(default=0.0)
+    rating_count = serializers.IntegerField(default=0)
 
 
 class MatchRequestSerializer(serializers.ModelSerializer):
