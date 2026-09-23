@@ -21,7 +21,9 @@ def unique_skill_names(skill_names):
     )
 
 
-
+# =========================================================
+# FIND MATCHES
+# =========================================================
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -82,26 +84,49 @@ def find_matches(request):
             )
         )
 
-        teach_me = learn & their_teach
-        teach_them = teach & their_learn
+        teach_me = (
+            learn
+            & their_teach
+        )
+
+        teach_them = (
+            teach
+            & their_learn
+        )
 
         if teach_me and teach_them:
 
             first_user_skill = (
                 UserSkill.objects
-                .filter(user_id=user_id)
+                .filter(
+                    user_id=user_id
+                )
+                .select_related(
+                    "user__profile"
+                )
                 .first()
             )
 
             if not first_user_skill:
                 continue
 
+            matched_user = (
+                first_user_skill.user
+            )
+
+            profile = getattr(
+                matched_user,
+                "profile",
+                None
+            )
+
             matches.append(
                 {
-                    "user_id": user_id,
+                    "user_id":
+                        user_id,
 
                     "username":
-                        first_user_skill.user.username,
+                        matched_user.username,
 
                     "teach_me":
                         unique_skill_names(
@@ -130,20 +155,34 @@ def find_matches(request):
                             )
                             .distinct()
                         ),
+
+                    "rating_average":
+                        (
+                            profile.rating_average
+                            if profile
+                            else 0.0
+                        ),
+
+                    "rating_count":
+                        (
+                            profile.rating_count
+                            if profile
+                            else 0
+                        ),
                 }
             )
 
-    serializer = MatchSerializer(
-        matches,
-        many=True
-    )
-
     return Response(
-        serializer.data
+        MatchSerializer(
+            matches,
+            many=True
+        ).data
     )
 
 
-
+# =========================================================
+# CREATE MATCH REQUEST
+# =========================================================
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -175,16 +214,29 @@ def create_request(request):
     )
 
 
-
+# =========================================================
+# GET INCOMING REQUESTS
+# =========================================================
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_requests(request):
 
+    # Keep rating-expiration handling from main
+    from meetings.views import process_expired_ratings
+
+    process_expired_ratings()
+
     requests = (
         MatchRequest.objects
         .filter(
             receiver=request.user
+        )
+        .select_related(
+            "sender__profile",
+            "receiver__profile",
+            "skill",
+            "selected_slot",
         )
         .order_by("-id")
     )
@@ -235,6 +287,9 @@ def respond_to_request(request, pk):
         )
     ).strip().lower()
 
+    # =====================================================
+    # REJECT
+    # =====================================================
 
     if action == "reject":
 
@@ -281,20 +336,21 @@ def respond_to_request(request, pk):
             status=status.HTTP_200_OK,
         )
 
-
-
+    # =====================================================
+    # ACCEPT
+    # =====================================================
 
     if action == "accept":
 
-        # The meeting must be created successfully first.
-        # create_meeting_for_match_request handles
-        # the accepted request state.
+        # Do not mark it accepted until meeting creation succeeds
         from meetings.views import (
             create_meeting_for_match_request
         )
 
         user_timezone = (
-            request.data.get("timezone")
+            request.data.get(
+                "timezone"
+            )
             if request.data
             else None
         )
@@ -331,8 +387,6 @@ def respond_to_request(request, pk):
             status=status.HTTP_200_OK,
         )
 
-
-
     return Response(
         {
             "error":
@@ -342,15 +396,29 @@ def respond_to_request(request, pk):
     )
 
 
+# =========================================================
+# GET SENT REQUESTS
+# =========================================================
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_sent_requests(request):
 
+    # Keep rating-expiration handling from main
+    from meetings.views import process_expired_ratings
+
+    process_expired_ratings()
+
     requests = (
         MatchRequest.objects
         .filter(
             sender=request.user
+        )
+        .select_related(
+            "sender__profile",
+            "receiver__profile",
+            "skill",
+            "selected_slot",
         )
         .order_by("-id")
     )

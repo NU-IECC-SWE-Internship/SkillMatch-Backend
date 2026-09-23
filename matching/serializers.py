@@ -16,6 +16,10 @@ class MatchSerializer(serializers.Serializer):
         child=serializers.CharField()
     )
 
+    # Added by the rating feature
+    rating_average = serializers.FloatField(default=0.0)
+    rating_count = serializers.IntegerField(default=0)
+
 
 class MatchRequestSerializer(serializers.ModelSerializer):
 
@@ -24,10 +28,16 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    sender_rating_average = serializers.SerializerMethodField()
+    sender_rating_count = serializers.SerializerMethodField()
+
     receiver_username = serializers.CharField(
         source="receiver.username",
         read_only=True
     )
+
+    receiver_rating_average = serializers.SerializerMethodField()
+    receiver_rating_count = serializers.SerializerMethodField()
 
     skill_name = serializers.CharField(
         source="skill.name",
@@ -56,7 +66,6 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-
     class Meta:
         model = MatchRequest
 
@@ -65,9 +74,13 @@ class MatchRequestSerializer(serializers.ModelSerializer):
 
             "sender",
             "sender_username",
+            "sender_rating_average",
+            "sender_rating_count",
 
             "receiver",
             "receiver_username",
+            "receiver_rating_average",
+            "receiver_rating_count",
 
             "skill",
             "skill_name",
@@ -86,8 +99,12 @@ class MatchRequestSerializer(serializers.ModelSerializer):
 
             "sender",
             "sender_username",
+            "sender_rating_average",
+            "sender_rating_count",
 
             "receiver_username",
+            "receiver_rating_average",
+            "receiver_rating_count",
 
             "skill_name",
 
@@ -99,10 +116,65 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "rejection_reason",
         ]
 
+    def get_sender_rating_average(self, obj):
+        profile = getattr(
+            obj.sender,
+            "profile",
+            None
+        )
+
+        if profile and profile.rating_average:
+            return round(
+                profile.rating_average,
+                1
+            )
+
+        return 0.0
+
+    def get_sender_rating_count(self, obj):
+        profile = getattr(
+            obj.sender,
+            "profile",
+            None
+        )
+
+        if profile and profile.rating_count:
+            return profile.rating_count
+
+        return 0
+
+    def get_receiver_rating_average(self, obj):
+        profile = getattr(
+            obj.receiver,
+            "profile",
+            None
+        )
+
+        if profile and profile.rating_average:
+            return round(
+                profile.rating_average,
+                1
+            )
+
+        return 0.0
+
+    def get_receiver_rating_count(self, obj):
+        profile = getattr(
+            obj.receiver,
+            "profile",
+            None
+        )
+
+        if profile and profile.rating_count:
+            return profile.rating_count
+
+        return 0
 
     def validate(self, attrs):
 
-        request = self.context.get("request")
+        request = self.context.get(
+            "request"
+        )
 
         sender = (
             request.user
@@ -122,7 +194,6 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "selected_slot"
         )
 
-
         # 1. User cannot send a request to themselves
         if (
             sender
@@ -135,7 +206,6 @@ class MatchRequestSerializer(serializers.ModelSerializer):
                 }
             )
 
-
         # 2. Receiver must actually teach the selected skill
         receiver_teaches = (
             UserSkill.objects.filter(
@@ -145,7 +215,6 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             ).exists()
         )
 
-
         if not receiver_teaches:
             raise serializers.ValidationError(
                 {
@@ -154,18 +223,13 @@ class MatchRequestSerializer(serializers.ModelSerializer):
                 }
             )
 
-
         # 3. Availability slot must belong to the receiver
-        if (
-            slot.user_id
-            != receiver.id
-        ):
+        if slot.user_id != receiver.id:
             raise serializers.ValidationError(
                 {
                     "selected_slot":
                         "The chosen slot does not belong to the receiver."
                 }
             )
-
 
         return attrs
