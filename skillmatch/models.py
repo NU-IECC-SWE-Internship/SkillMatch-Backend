@@ -5,27 +5,27 @@ from django.conf import settings
 class Profile(models.Model):
 
     SESSION_DURATION_CHOICES = [
-    (15, "15 minutes"),
-    (30, "30 minutes"),
-    (45, "45 minutes"),
+        (15, "15 minutes"),
+        (30, "30 minutes"),
+        (45, "45 minutes"),
 
-    (60, "1 hour"),
-    (75, "1 hour 15 minutes"),
-    (90, "1 hour 30 minutes"),
-    (105, "1 hour 45 minutes"),
+        (60, "1 hour"),
+        (75, "1 hour 15 minutes"),
+        (90, "1 hour 30 minutes"),
+        (105, "1 hour 45 minutes"),
 
-    (120, "2 hours"),
-    (135, "2 hours 15 minutes"),
-    (150, "2 hours 30 minutes"),
-    (165, "2 hours 45 minutes"),
+        (120, "2 hours"),
+        (135, "2 hours 15 minutes"),
+        (150, "2 hours 30 minutes"),
+        (165, "2 hours 45 minutes"),
 
-    (180, "3 hours"),
-    (195, "3 hours 15 minutes"),
-    (210, "3 hours 30 minutes"),
-    (225, "3 hours 45 minutes"),
+        (180, "3 hours"),
+        (195, "3 hours 15 minutes"),
+        (210, "3 hours 30 minutes"),
+        (225, "3 hours 45 minutes"),
 
-    (240, "4 hours"),
-]
+        (240, "4 hours"),
+    ]
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -33,7 +33,9 @@ class Profile(models.Model):
         related_name="profile"
     )
 
-    bio = models.TextField(blank=True)
+    bio = models.TextField(
+        blank=True
+    )
 
     onboarding_completed = models.BooleanField(
         default=False
@@ -43,6 +45,9 @@ class Profile(models.Model):
         choices=SESSION_DURATION_CHOICES,
         default=120
     )
+
+    rating_average = models.FloatField(default=0.0)
+    rating_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return self.user.username
@@ -88,7 +93,7 @@ class UserSkill(models.Model):
                 fields=[
                     "user",
                     "skill",
-                    "skill_type"
+                    "skill_type",
                 ],
                 name="unique_user_skill_type"
             )
