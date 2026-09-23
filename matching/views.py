@@ -103,10 +103,17 @@ def create_request(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_requests(request):
+    from meetings.views import process_expired_ratings
+    process_expired_ratings()
 
     requests = MatchRequest.objects.filter(
         receiver=request.user
-    )
+    ).select_related(
+        "sender__profile",
+        "receiver__profile",
+        "skill",
+        "selected_slot",
+    ).order_by("-id")
 
     serializer = MatchRequestSerializer(requests, many=True)
 
@@ -202,8 +209,16 @@ def respond_to_request(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_sent_requests(request):
+    from meetings.views import process_expired_ratings
+    process_expired_ratings()
+
     requests = MatchRequest.objects.filter(
         sender=request.user
+    ).select_related(
+        "sender__profile",
+        "receiver__profile",
+        "skill",
+        "selected_slot",
     ).order_by("-id")
 
     serializer = MatchRequestSerializer(
