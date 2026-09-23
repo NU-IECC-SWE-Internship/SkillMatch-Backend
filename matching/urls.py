@@ -28,8 +28,8 @@ urlpatterns = [
     ),
 
     path(
-        "requests/<int:request_id>/respond/",
+        "requests/<int:pk>/respond/",
         respond_to_request,
-        name="respond-to-request",
+        name="respond-request",
     ),
 ]
