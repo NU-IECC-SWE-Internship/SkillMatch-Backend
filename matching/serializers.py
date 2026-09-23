@@ -21,109 +21,80 @@ class MatchSerializer(serializers.Serializer):
 
 
 class MatchRequestSerializer(serializers.ModelSerializer):
-    sender_username = serializers.CharField(
-        source="sender.username",
-        read_only=True
-    )
+    sender_username = serializers.CharField(source="sender.username", read_only=True)
     sender_rating_average = serializers.SerializerMethodField()
     sender_rating_count = serializers.SerializerMethodField()
-
-    receiver_username = serializers.CharField(
-        source="receiver.username",
-        read_only=True
-    )
+    receiver_username = serializers.CharField(source="receiver.username", read_only=True)
     receiver_rating_average = serializers.SerializerMethodField()
     receiver_rating_count = serializers.SerializerMethodField()
-
-    skill_name = serializers.CharField(
-        source="skill.name",
-        read_only=True
-    )
+    skill_name = serializers.CharField(source="skill.name", read_only=True)
     skill_is_verified = serializers.SerializerMethodField()
     receiver_skill_name = serializers.CharField(
         source="receiver_skill.name",
-        read_only=True
+        read_only=True,
+        allow_null=True,
     )
-
-    selected_slot_day = serializers.CharField(
-        source="selected_slot.day",
-        read_only=True
-    )
+    selected_slot_day = serializers.CharField(source="selected_slot.day", read_only=True)
     selected_slot_start_time = serializers.TimeField(
         source="selected_slot.start_time",
         read_only=True,
-        format="%H:%M"
+        format="%H:%M",
     )
     selected_slot_end_time = serializers.TimeField(
         source="selected_slot.end_time",
         read_only=True,
-        format="%H:%M"
+        format="%H:%M",
     )
-
-    rejection_reason = serializers.CharField(
-        read_only=True,
-        allow_null=True
-    )
-
+    rejection_reason = serializers.CharField(read_only=True, allow_null=True)
     sender_teach_skills = serializers.SerializerMethodField()
-    teach_me = serializers.ListField(
-        child=serializers.CharField(),
-        required=False
-    )
-    teach_them = serializers.ListField(
-        child=serializers.CharField(),
-        required=False
-    )
+    teach_me = serializers.ListField(child=serializers.CharField(), required=False)
+    teach_them = serializers.ListField(child=serializers.CharField(), required=False)
+    requested_start_time = serializers.TimeField(required=False, allow_null=True)
+    requested_end_time = serializers.TimeField(required=False, allow_null=True)
 
     class Meta:
         model = MatchRequest
-
         fields = [
             "id",
-
             "sender",
+            "receiver",
+            "skill",
+            "receiver_skill",
+            "selected_slot",
+            "requested_start_time",
+            "requested_end_time",
+            "status",
             "sender_username",
             "sender_rating_average",
             "sender_rating_count",
-
-            "receiver",
             "receiver_username",
             "receiver_rating_average",
             "receiver_rating_count",
-
-            "skill",
             "skill_name",
             "skill_is_verified",
-
-            "selected_slot",
+            "receiver_skill_name",
             "selected_slot_day",
             "selected_slot_start_time",
             "selected_slot_end_time",
-
-            "status",
             "rejection_reason",
-            "receiver_skill_name",
             "sender_teach_skills",
+            "teach_me",
+            "teach_them",
         ]
-
         read_only_fields = [
             "id",
-
             "sender",
             "sender_username",
             "sender_rating_average",
             "sender_rating_count",
-
             "receiver_username",
             "receiver_rating_average",
             "receiver_rating_count",
-
             "skill_name",
             "skill_is_verified",
             "selected_slot_day",
             "selected_slot_start_time",
             "selected_slot_end_time",
-
             "status",
             "rejection_reason",
             "receiver_skill_name",
@@ -134,15 +105,19 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         receiver_learn_skill_ids = set(
             UserSkill.objects.filter(
                 user=obj.receiver,
-                skill_type="learn"
+                skill_type="learn",
             ).values_list("skill_id", flat=True)
         )
 
-        user_skills = UserSkill.objects.filter(
-            user=obj.sender,
-            skill_type="teach",
-            skill_id__in=receiver_learn_skill_ids,
-        ).select_related("skill").order_by("skill__name")
+        user_skills = (
+            UserSkill.objects.filter(
+                user=obj.sender,
+                skill_type="teach",
+                skill_id__in=receiver_learn_skill_ids,
+            )
+            .select_related("skill")
+            .order_by("skill__name")
+        )
 
         return [
             {
@@ -154,57 +129,27 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         ]
 
     def get_sender_rating_average(self, obj):
-        profile = getattr(
-            obj.sender,
-            "profile",
-            None
-        )
-
+        profile = getattr(obj.sender, "profile", None)
         if profile and profile.rating_average:
-            return round(
-                profile.rating_average,
-                1
-            )
-
+            return round(profile.rating_average, 1)
         return 0.0
 
     def get_sender_rating_count(self, obj):
-        profile = getattr(
-            obj.sender,
-            "profile",
-            None
-        )
-
+        profile = getattr(obj.sender, "profile", None)
         if profile and profile.rating_count:
             return profile.rating_count
-
         return 0
 
     def get_receiver_rating_average(self, obj):
-        profile = getattr(
-            obj.receiver,
-            "profile",
-            None
-        )
-
+        profile = getattr(obj.receiver, "profile", None)
         if profile and profile.rating_average:
-            return round(
-                profile.rating_average,
-                1
-            )
-
+            return round(profile.rating_average, 1)
         return 0.0
 
     def get_receiver_rating_count(self, obj):
-        profile = getattr(
-            obj.receiver,
-            "profile",
-            None
-        )
-
+        profile = getattr(obj.receiver, "profile", None)
         if profile and profile.rating_count:
             return profile.rating_count
-
         return 0
 
     def get_skill_is_verified(self, obj):
@@ -217,65 +162,34 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         ).exists()
 
     def validate(self, attrs):
-
-        request = self.context.get(
-            "request"
-        )
-
-        sender = (
-            request.user
-            if request
-            else None
-        )
-
-        receiver = attrs.get(
-            "receiver"
-        )
-
-        skill = attrs.get(
-            "skill"
-        )
-
-        slot = attrs.get(
-            "selected_slot"
-        )
+        request = self.context.get("request")
+        sender = request.user if request else None
+        receiver = attrs.get("receiver")
+        skill = attrs.get("skill")
+        slot = attrs.get("selected_slot")
 
         # 1. User cannot send a request to themselves
-        if (
-            sender
-            and receiver == sender
-        ):
+        if sender and receiver == sender:
             raise serializers.ValidationError(
-                {
-                    "receiver":
-                        "You cannot send a match request to yourself."
-                }
+                {"receiver": "You cannot send a match request to yourself."}
             )
 
         # 2. Receiver must actually teach the selected skill
-        receiver_teaches = (
-            UserSkill.objects.filter(
-                user=receiver,
-                skill=skill,
-                skill_type="teach"
-            ).exists()
-        )
+        receiver_teaches = UserSkill.objects.filter(
+            user=receiver,
+            skill=skill,
+            skill_type="teach",
+        ).exists()
 
         if not receiver_teaches:
             raise serializers.ValidationError(
-                {
-                    "skill":
-                        "The receiver does not offer this skill."
-                }
+                {"skill": "The receiver does not offer this skill."}
             )
 
         # 3. Availability slot must belong to the receiver
         if slot.user_id != receiver.id:
             raise serializers.ValidationError(
-                {
-                    "selected_slot":
-                        "The chosen slot does not belong to the receiver."
-                }
+                {"selected_slot": "The chosen slot does not belong to the receiver."}
             )
 
         return attrs
