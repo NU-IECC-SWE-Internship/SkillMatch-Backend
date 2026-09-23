@@ -10,6 +10,7 @@ from .models import (
 
 
 class ProfileSerializer(serializers.ModelSerializer):
+
     username = serializers.CharField(
         source="user.username",
         read_only=True
@@ -17,6 +18,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
+
         fields = [
             "id",
             "user",
@@ -38,8 +40,10 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class SkillSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Skill
+
         fields = [
             "id",
             "name",
@@ -47,6 +51,7 @@ class SkillSerializer(serializers.ModelSerializer):
 
 
 class UserSkillSerializer(serializers.ModelSerializer):
+
     skill_name = serializers.CharField(
         source="skill.name",
         read_only=True
@@ -54,6 +59,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSkill
+
         fields = [
             "id",
             "skill",
@@ -63,8 +69,10 @@ class UserSkillSerializer(serializers.ModelSerializer):
 
 
 class AvailabilitySlotSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = AvailabilitySlot
+
         fields = [
             "id",
             "day",
@@ -74,6 +82,7 @@ class AvailabilitySlotSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
+
     password = serializers.CharField(
         write_only=True,
         min_length=6
@@ -81,6 +90,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
+
         fields = [
             "id",
             "username",
@@ -89,9 +99,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+
         user = User.objects.create_user(
             username=validated_data["username"],
-            email=validated_data.get("email", ""),
+            email=validated_data.get(
+                "email",
+                ""
+            ),
             password=validated_data["password"],
         )
 
@@ -103,8 +117,10 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = User
+
         fields = [
             "id",
             "username",

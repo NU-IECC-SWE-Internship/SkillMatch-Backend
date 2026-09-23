@@ -6,39 +6,59 @@ from .views import (
     UserSkillListCreateView,
     UserSkillDeleteView,
     AvailabilityListCreateView,
-    UserAvailabilityView,
     AvailabilityUpdateDeleteView,
+    UserAvailabilityView,
+    UserSessionSettingsView,
 )
 
 
 urlpatterns = [
-    path("profile/", ProfileView.as_view(), name="profile"),
 
-    path("skills/", SkillListCreateView.as_view(), name="skills"),
+    path(
+        "profile/",
+        ProfileView.as_view(),
+        name="profile"
+    ),
 
-    path("my-skills/", UserSkillListCreateView.as_view(), name="my-skills"),
+    path(
+        "skills/",
+        SkillListCreateView.as_view(),
+        name="skills"
+    ),
+
+    path(
+        "my-skills/",
+        UserSkillListCreateView.as_view(),
+        name="my-skills"
+    ),
 
     path(
         "my-skills/<int:pk>/",
         UserSkillDeleteView.as_view(),
-        name="delete-user-skill",
+        name="my-skill-delete"
     ),
 
     path(
         "availability/",
         AvailabilityListCreateView.as_view(),
-        name="availability",
-    ),
-
-    path(
-        "users/<int:user_id>/availability/",
-        UserAvailabilityView.as_view(),
-        name="user-availability",
+        name="availability"
     ),
 
     path(
         "availability/<int:pk>/",
         AvailabilityUpdateDeleteView.as_view(),
-        name="availability-detail",
+        name="availability-detail"
+    ),
+
+    path(
+        "users/<int:user_id>/availability/",
+        UserAvailabilityView.as_view(),
+        name="user-availability"
+    ),
+
+    path(
+        "users/<int:user_id>/session-settings/",
+        UserSessionSettingsView.as_view(),
+        name="user-session-settings"
     ),
 ]
