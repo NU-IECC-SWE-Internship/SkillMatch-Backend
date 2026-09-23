@@ -60,12 +60,11 @@ def find_matches(request):
         teach_them = teach & their_learn
 
         if teach_me and teach_them:
+            matched_user = UserSkill.objects.filter(user_id=user_id).select_related('user__profile').first().user
+            profile = getattr(matched_user, 'profile', None)
             matches.append({
                 "user_id": user_id,
-                "username": UserSkill.objects
-                    .filter(user_id=user_id)
-                    .first()
-                    .user.username,
+                "username": matched_user.username,
                 "teach_me": unique_skill_names(
                     UserSkill.objects
                     .filter(user_id=user_id, skill_id__in=teach_me)
@@ -78,6 +77,8 @@ def find_matches(request):
                     .values_list("skill__name", flat=True)
                     .distinct()
                 ),
+                "rating_average": profile.rating_average if profile else 0.0,
+                "rating_count": profile.rating_count if profile else 0,
             })
 
     return Response(MatchSerializer(matches, many=True).data)
@@ -102,10 +103,17 @@ def create_request(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_requests(request):
+    from meetings.views import process_expired_ratings
+    process_expired_ratings()
 
     requests = MatchRequest.objects.filter(
         receiver=request.user
-    )
+    ).select_related(
+        "sender__profile",
+        "receiver__profile",
+        "skill",
+        "selected_slot",
+    ).order_by("-id")
 
     serializer = MatchRequestSerializer(requests, many=True)
 
@@ -201,8 +209,16 @@ def respond_to_request(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_sent_requests(request):
+    from meetings.views import process_expired_ratings
+    process_expired_ratings()
+
     requests = MatchRequest.objects.filter(
         sender=request.user
+    ).select_related(
+        "sender__profile",
+        "receiver__profile",
+        "skill",
+        "selected_slot",
     ).order_by("-id")
 
     serializer = MatchRequestSerializer(

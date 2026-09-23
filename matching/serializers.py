@@ -8,11 +8,17 @@ class MatchSerializer(serializers.Serializer):
     username = serializers.CharField()
     teach_me = serializers.ListField(child=serializers.CharField())
     teach_them = serializers.ListField(child=serializers.CharField())
+    rating_average = serializers.FloatField(default=0.0)
+    rating_count = serializers.IntegerField(default=0)
 
 
 class MatchRequestSerializer(serializers.ModelSerializer):
     sender_username = serializers.CharField(source="sender.username", read_only=True)
+    sender_rating_average = serializers.SerializerMethodField()
+    sender_rating_count = serializers.SerializerMethodField()
     receiver_username = serializers.CharField(source="receiver.username", read_only=True)
+    receiver_rating_average = serializers.SerializerMethodField()
+    receiver_rating_count = serializers.SerializerMethodField()
     skill_name = serializers.CharField(source="skill.name", read_only=True)
     selected_slot_day = serializers.CharField(
         source="selected_slot.day",
@@ -35,8 +41,12 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "id",
             "sender",
             "sender_username",
+            "sender_rating_average",
+            "sender_rating_count",
             "receiver",
             "receiver_username",
+            "receiver_rating_average",
+            "receiver_rating_count",
             "skill",
             "skill_name",
             "selected_slot",
@@ -50,7 +60,11 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "id",
             "sender",
             "sender_username",
+            "sender_rating_average",
+            "sender_rating_count",
             "receiver_username",
+            "receiver_rating_average",
+            "receiver_rating_count",
             "skill_name",
             "selected_slot_day",
             "selected_slot_start_time",
@@ -58,6 +72,22 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "status",
             "rejection_reason",
         ]
+
+    def get_sender_rating_average(self, obj):
+        profile = getattr(obj.sender, "profile", None)
+        return round(profile.rating_average, 1) if profile and profile.rating_average else 0.0
+
+    def get_sender_rating_count(self, obj):
+        profile = getattr(obj.sender, "profile", None)
+        return profile.rating_count if profile and profile.rating_count else 0
+
+    def get_receiver_rating_average(self, obj):
+        profile = getattr(obj.receiver, "profile", None)
+        return round(profile.rating_average, 1) if profile and profile.rating_average else 0.0
+
+    def get_receiver_rating_count(self, obj):
+        profile = getattr(obj.receiver, "profile", None)
+        return profile.rating_count if profile and profile.rating_count else 0
 
     def validate(self, attrs):
         request = self.context.get("request")
