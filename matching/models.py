@@ -40,5 +40,12 @@ class MatchRequest(models.Model):
 
     rejection_reason = models.TextField(
         blank=True,
+        null=True
+    )
+    receiver_skill = models.ForeignKey(
+        Skill,
+        on_delete=models.CASCADE,
         null=True,
+        blank=True,
+        related_name="received_match_requests"
     )

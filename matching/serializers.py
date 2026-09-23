@@ -7,63 +7,64 @@ from skillmatch.models import UserSkill
 class MatchSerializer(serializers.Serializer):
     user_id = serializers.IntegerField()
     username = serializers.CharField()
-
-    teach_me = serializers.ListField(
-        child=serializers.CharField()
-    )
-
-    teach_them = serializers.ListField(
-        child=serializers.CharField()
-    )
-
-    # Added by the rating feature
-    rating_average = serializers.FloatField(default=0.0)
-    rating_count = serializers.IntegerField(default=0)
+    teach_me = serializers.ListField(child=serializers.CharField())
+    teach_them = serializers.ListField(child=serializers.CharField())
+    teach_me_ids = serializers.ListField(child=serializers.IntegerField())
+    teach_them_ids = serializers.ListField(child=serializers.IntegerField())
 
 
 class MatchRequestSerializer(serializers.ModelSerializer):
-
     sender_username = serializers.CharField(
-        source="sender.username",
+        source="sender.username", 
         read_only=True
     )
-
     sender_rating_average = serializers.SerializerMethodField()
     sender_rating_count = serializers.SerializerMethodField()
 
     receiver_username = serializers.CharField(
-        source="receiver.username",
+        source="receiver.username", 
         read_only=True
     )
-
     receiver_rating_average = serializers.SerializerMethodField()
     receiver_rating_count = serializers.SerializerMethodField()
 
     skill_name = serializers.CharField(
-        source="skill.name",
+        source="skill.name", 
+        read_only=True
+    )
+    receiver_skill_name = serializers.CharField(
+        source="receiver_skill.name", 
         read_only=True
     )
 
     selected_slot_day = serializers.CharField(
-        source="selected_slot.day",
-        read_only=True,
+        source="selected_slot.day", 
+        read_only=True
     )
-
     selected_slot_start_time = serializers.TimeField(
-        source="selected_slot.start_time",
-        read_only=True,
-        format="%H:%M",
+        source="selected_slot.start_time", 
+        read_only=True, 
+        format="%H:%M"
     )
-
     selected_slot_end_time = serializers.TimeField(
-        source="selected_slot.end_time",
-        read_only=True,
-        format="%H:%M",
+        source="selected_slot.end_time", 
+        read_only=True, 
+        format="%H:%M"
     )
 
     rejection_reason = serializers.CharField(
-        read_only=True,
-        allow_null=True,
+        read_only=True, 
+        allow_null=True
+    )
+
+    sender_teach_skills = serializers.SerializerMethodField()
+    teach_me = serializers.ListField(
+        child=serializers.CharField(), 
+        required=False
+    )
+    teach_them = serializers.ListField(
+        child=serializers.CharField(), 
+        required=False
     )
 
     class Meta:
@@ -92,6 +93,8 @@ class MatchRequestSerializer(serializers.ModelSerializer):
 
             "status",
             "rejection_reason",
+            "receiver_skill_name",
+            "sender_teach_skills",
         ]
 
         read_only_fields = [
@@ -114,6 +117,27 @@ class MatchRequestSerializer(serializers.ModelSerializer):
 
             "status",
             "rejection_reason",
+            "receiver_skill_name",
+            "sender_teach_skills",
+        ]
+
+    def get_sender_teach_skills(self, obj):
+        receiver_learn_skill_ids = set(
+            UserSkill.objects.filter(
+                user=obj.receiver,
+                skill_type="learn"
+            ).values_list("skill_id", flat=True)
+        )
+
+        user_skills = UserSkill.objects.filter(
+            user=obj.sender,
+            skill_type="teach",
+            skill_id__in=receiver_learn_skill_ids,
+        ).select_related("skill").order_by("skill__name")
+
+        return [
+            {"id": item.skill_id, "name": item.skill.name}
+            for item in user_skills
         ]
 
     def get_sender_rating_average(self, obj):

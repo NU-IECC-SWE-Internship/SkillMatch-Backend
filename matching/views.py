@@ -1,14 +1,12 @@
 from django.shortcuts import get_object_or_404
-
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
 
-from skillmatch.models import UserSkill
-
+from skillmatch.models import Skill, UserSkill
 from .models import MatchRequest
-from .serializers import MatchSerializer, MatchRequestSerializer
+from .serializers import MatchRequestSerializer, MatchSerializer
 
 
 def unique_skill_names(skill_names):
@@ -95,89 +93,57 @@ def find_matches(request):
         )
 
         if teach_me and teach_them:
-
             first_user_skill = (
                 UserSkill.objects
-                .filter(
-                    user_id=user_id
-                )
-                .select_related(
-                    "user__profile"
-                )
+                .filter(user_id=user_id)
+                .select_related("user__profile")
                 .first()
             )
 
             if not first_user_skill:
                 continue
 
-            matched_user = (
-                first_user_skill.user
+            matched_user = first_user_skill.user
+            profile = getattr(matched_user, "profile", None)
+
+            teach_me_names = unique_skill_names(
+                UserSkill.objects
+                .filter(user_id=user_id, skill_id__in=teach_me)
+                .values_list("skill__name", flat=True)
+                .distinct()
+            )
+            teach_them_names = unique_skill_names(
+                UserSkill.objects
+                .filter(user_id=user_id, skill_id__in=teach_them)
+                .values_list("skill__name", flat=True)
+                .distinct()
             )
 
-            profile = getattr(
-                matched_user,
-                "profile",
-                None
+            teach_me_ids = sorted(
+                UserSkill.objects.filter(
+                    user_id=user_id,
+                    skill_id__in=teach_me,
+                ).values_list("skill_id", flat=True).distinct()
+            )
+            teach_them_ids = sorted(
+                UserSkill.objects.filter(
+                    user_id=user_id,
+                    skill_id__in=teach_them,
+                ).values_list("skill_id", flat=True).distinct()
             )
 
-            matches.append(
-                {
-                    "user_id":
-                        user_id,
+            matches.append({
+                "user_id": user_id,
+                "username": matched_user.username,
+                "teach_me": teach_me_names,
+                "teach_them": teach_them_names,
+                "teach_me_ids": teach_me_ids,
+                "teach_them_ids": teach_them_ids,
+                "rating_average": profile.rating_average if profile else 0.0,
+                "rating_count": profile.rating_count if profile else 0,
+            })
 
-                    "username":
-                        matched_user.username,
-
-                    "teach_me":
-                        unique_skill_names(
-                            UserSkill.objects
-                            .filter(
-                                user_id=user_id,
-                                skill_id__in=teach_me
-                            )
-                            .values_list(
-                                "skill__name",
-                                flat=True
-                            )
-                            .distinct()
-                        ),
-
-                    "teach_them":
-                        unique_skill_names(
-                            UserSkill.objects
-                            .filter(
-                                user_id=user_id,
-                                skill_id__in=teach_them
-                            )
-                            .values_list(
-                                "skill__name",
-                                flat=True
-                            )
-                            .distinct()
-                        ),
-
-                    "rating_average":
-                        (
-                            profile.rating_average
-                            if profile
-                            else 0.0
-                        ),
-
-                    "rating_count":
-                        (
-                            profile.rating_count
-                            if profile
-                            else 0
-                        ),
-                }
-            )
-
-    return Response(
-        MatchSerializer(
-            matches,
-            many=True
-        ).data
-    )
+    return Response(MatchSerializer(matches, many=True).data)
 
 
 # =========================================================
@@ -222,7 +188,6 @@ def create_request(request):
 @permission_classes([IsAuthenticated])
 def get_requests(request):
 
-    # Keep rating-expiration handling from main
     from meetings.views import process_expired_ratings
 
     process_expired_ratings()
@@ -274,8 +239,7 @@ def respond_to_request(request, pk):
     if match_req.status != "PENDING":
         return Response(
             {
-                "error":
-                    "This request has already been processed."
+                "error": "This request has already been processed."
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -303,17 +267,13 @@ def respond_to_request(request, pk):
         if not rejection_reason:
             return Response(
                 {
-                    "error":
-                        "A rejection reason is required."
+                    "error": "A rejection reason is required."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         match_req.status = "REJECTED"
-
-        match_req.rejection_reason = (
-            rejection_reason
-        )
+        match_req.rejection_reason = rejection_reason
 
         match_req.save(
             update_fields=[
@@ -324,14 +284,9 @@ def respond_to_request(request, pk):
 
         return Response(
             {
-                "message":
-                    "Request rejected.",
-
-                "status":
-                    "REJECTED",
-
-                "rejection_reason":
-                    rejection_reason,
+                "message": "Request rejected.",
+                "status": "REJECTED",
+                "rejection_reason": rejection_reason,
             },
             status=status.HTTP_200_OK,
         )
@@ -341,56 +296,65 @@ def respond_to_request(request, pk):
     # =====================================================
 
     if action == "accept":
+        receiver_skill_id = request.data.get("receiver_skill") if request.data else None
 
-        # Do not mark it accepted until meeting creation succeeds
-        from meetings.views import (
-            create_meeting_for_match_request
-        )
+        if receiver_skill_id is not None:
+            try:
+                receiver_skill = Skill.objects.get(pk=receiver_skill_id)
+            except Skill.DoesNotExist:
+                return Response(
+                    {"error": "Selected skill is invalid."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            receiver_skill = None
+
+        from meetings.views import create_meeting_for_match_request
 
         user_timezone = (
-            request.data.get(
-                "timezone"
-            )
+            request.data.get("timezone")
             if request.data
             else None
         )
 
-        meeting, err = (
-            create_meeting_for_match_request(
-                match_req,
-                user_timezone=user_timezone,
-            )
+        meeting, err = create_meeting_for_match_request(
+            match_req,
+            user_timezone=user_timezone,
         )
 
         if err:
             err_data, err_status = err
-
             return Response(
                 err_data,
                 status=err_status
             )
 
+        match_req.receiver_skill = receiver_skill
+        match_req.status = "ACCEPTED"
+        match_req.rejection_reason = None
+        match_req.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+                "receiver_skill",
+            ]
+        )
+
         return Response(
             {
-                "message":
-                    "Request accepted and meeting scheduled successfully.",
-
-                "status":
-                    "ACCEPTED",
-
-                "meeting_id":
-                    meeting.id,
-
-                "room_url":
-                    meeting.room_url,
+                "message": "Request accepted and meeting scheduled successfully.",
+                "status": "ACCEPTED",
+                "meeting_id": meeting.id,
+                "room_url": meeting.room_url,
+                "receiver_skill": receiver_skill.id if receiver_skill else None,
+                "receiver_skill_name": receiver_skill.name if receiver_skill else None,
             },
             status=status.HTTP_200_OK,
         )
 
     return Response(
         {
-            "error":
-                "Invalid action."
+            "error": "Invalid action."
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
@@ -404,7 +368,6 @@ def respond_to_request(request, pk):
 @permission_classes([IsAuthenticated])
 def get_sent_requests(request):
 
-    # Keep rating-expiration handling from main
     from meetings.views import process_expired_ratings
 
     process_expired_ratings()
@@ -431,3 +394,66 @@ def get_sent_requests(request):
     return Response(
         serializer.data
     )
+
+
+# =========================================================
+# GET TEACHERS
+# =========================================================
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_teachers(request):
+    user = request.user
+
+    my_learning_skills = UserSkill.objects.filter(
+        user=user,
+        skill_type="learn"
+    ).select_related("skill")
+
+    learning_skill_ids = [
+        user_skill.skill_id
+        for user_skill in my_learning_skills
+    ]
+
+    skill_id = request.query_params.get("skill")
+
+    teaching_skills = UserSkill.objects.filter(
+        skill_type="teach",
+        skill_id__in=learning_skill_ids
+    ).select_related("user", "skill")
+
+    if skill_id:
+        teaching_skills = teaching_skills.filter(
+            skill_id=skill_id
+        )
+
+    teachers = {}
+
+    for user_skill in teaching_skills:
+        teacher = user_skill.user
+
+        if teacher.id == user.id:
+            continue
+
+        if teacher.id not in teachers:
+            teachers[teacher.id] = {
+                "user_id": teacher.id,
+                "username": teacher.username,
+                "skills": []
+            }
+
+        teachers[teacher.id]["skills"].append({
+            "id": user_skill.skill.id,
+            "name": user_skill.skill.name
+        })
+
+    return Response({
+        "learning_skills": [
+            {
+                "id": user_skill.skill.id,
+                "name": user_skill.skill.name
+            }
+            for user_skill in my_learning_skills
+        ],
+        "teachers": list(teachers.values())
+    })
