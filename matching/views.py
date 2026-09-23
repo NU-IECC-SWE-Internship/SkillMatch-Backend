@@ -9,14 +9,20 @@ from .models import MatchRequest
 from .serializers import MatchRequestSerializer, MatchSerializer
 
 
-def unique_skill_names(skill_names):
-    return sorted(
-        {
-            skill_name
-            for skill_name in skill_names
-            if skill_name
-        }
-    )
+def skill_verification_payload(queryset):
+    """Unique {name, is_verified} entries, preferring verified when duplicates exist."""
+    by_name = {}
+    for row in queryset.values("skill__name", "is_verified"):
+        name = row["skill__name"]
+        if not name:
+            continue
+        existing = by_name.get(name)
+        if existing is None or (row["is_verified"] and not existing["is_verified"]):
+            by_name[name] = {
+                "name": name,
+                "is_verified": bool(row["is_verified"]),
+            }
+    return sorted(by_name.values(), key=lambda item: item["name"].lower())
 
 
 # =========================================================
@@ -106,39 +112,27 @@ def find_matches(request):
             matched_user = first_user_skill.user
             profile = getattr(matched_user, "profile", None)
 
-            teach_me_names = unique_skill_names(
-                UserSkill.objects
-                .filter(user_id=user_id, skill_id__in=teach_me)
-                .values_list("skill__name", flat=True)
-                .distinct()
-            )
-            teach_them_names = unique_skill_names(
-                UserSkill.objects
-                .filter(user_id=user_id, skill_id__in=teach_them)
-                .values_list("skill__name", flat=True)
-                .distinct()
-            )
-
-            teach_me_ids = sorted(
-                UserSkill.objects.filter(
-                    user_id=user_id,
-                    skill_id__in=teach_me,
-                ).values_list("skill_id", flat=True).distinct()
-            )
-            teach_them_ids = sorted(
-                UserSkill.objects.filter(
-                    user_id=user_id,
-                    skill_id__in=teach_them,
-                ).values_list("skill_id", flat=True).distinct()
-            )
-
             matches.append({
                 "user_id": user_id,
                 "username": matched_user.username,
-                "teach_me": teach_me_names,
-                "teach_them": teach_them_names,
-                "teach_me_ids": teach_me_ids,
-                "teach_them_ids": teach_them_ids,
+                # Skills they teach you — use their verification status
+                "teach_me": skill_verification_payload(
+                    UserSkill.objects.filter(
+                        user_id=user_id,
+                        skill_type="teach",
+                        skill_id__in=teach_me,
+                    )
+                ),
+                # Skills you teach them — use your verification status
+                "teach_them": skill_verification_payload(
+                    UserSkill.objects.filter(
+                        user=current_user,
+                        skill_type="teach",
+                        skill_id__in=teach_them,
+                    )
+                ),
+                "teach_me_ids": sorted(teach_me),
+                "teach_them_ids": sorted(teach_them),
                 "rating_average": profile.rating_average if profile else 0.0,
                 "rating_count": profile.rating_count if profile else 0,
             })
@@ -201,6 +195,7 @@ def get_requests(request):
             "sender__profile",
             "receiver__profile",
             "skill",
+            "receiver_skill",
             "selected_slot",
         )
         .order_by("-id")
@@ -381,6 +376,7 @@ def get_sent_requests(request):
             "sender__profile",
             "receiver__profile",
             "skill",
+            "receiver_skill",
             "selected_slot",
         )
         .order_by("-id")
@@ -444,7 +440,8 @@ def get_teachers(request):
 
         teachers[teacher.id]["skills"].append({
             "id": user_skill.skill.id,
-            "name": user_skill.skill.name
+            "name": user_skill.skill.name,
+            "is_verified": user_skill.is_verified,
         })
 
     return Response({

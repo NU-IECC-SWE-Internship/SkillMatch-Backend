@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 # --------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 
 # --------------------------------------------------
@@ -24,6 +24,8 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-change-me-in-env")
 DAILY_API_KEY = os.environ.get("DAILY_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 DEBUG = True
 
