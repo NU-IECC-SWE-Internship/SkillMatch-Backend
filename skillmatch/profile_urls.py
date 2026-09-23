@@ -8,6 +8,9 @@ from .views import (
     AvailabilityListCreateView,
     UserAvailabilityView,
     AvailabilityUpdateDeleteView,
+    SkillQuizView,
+    SkillQuizStartView,
+    SkillQuizSubmitView,
 )
 
 
@@ -15,6 +18,22 @@ urlpatterns = [
     path("profile/", ProfileView.as_view(), name="profile"),
 
     path("skills/", SkillListCreateView.as_view(), name="skills"),
+
+    path(
+        "skills/<int:skill_id>/quiz/",
+        SkillQuizView.as_view(),
+        name="skill-quiz",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/start/",
+        SkillQuizStartView.as_view(),
+        name="skill-quiz-start",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/submit/",
+        SkillQuizSubmitView.as_view(),
+        name="skill-quiz-submit",
+    ),
 
     path("my-skills/", UserSkillListCreateView.as_view(), name="my-skills"),
 
