@@ -6,7 +6,6 @@ from .models import (
     Skill,
     UserSkill,
     AvailabilitySlot,
-    SkillQuizQuestion,
 )
 
 
@@ -112,22 +111,6 @@ class UserSkillSerializer(serializers.ModelSerializer):
             return None
         return available_at
 
-
-
-class SkillQuizQuestionPublicSerializer(serializers.ModelSerializer):
-    """Quiz questions for clients — never includes the answer."""
-
-    class Meta:
-        model = SkillQuizQuestion
-        fields = [
-            "id",
-            "question_text",
-            "option_a",
-            "option_b",
-            "option_c",
-            "option_d",
-            "order",
-        ]
 
 
 class QuizAnswerSerializer(serializers.Serializer):

@@ -8,8 +8,20 @@ from .serializers import MatchSerializer
 from .models import MatchRequest
 from .serializers import MatchRequestSerializer
 
-def unique_skill_names(skill_names):
-    return sorted({skill_name for skill_name in skill_names if skill_name})
+def skill_verification_payload(queryset):
+    """Unique {name, is_verified} entries, preferring verified when duplicates exist."""
+    by_name = {}
+    for row in queryset.values("skill__name", "is_verified"):
+        name = row["skill__name"]
+        if not name:
+            continue
+        existing = by_name.get(name)
+        if existing is None or (row["is_verified"] and not existing["is_verified"]):
+            by_name[name] = {
+                "name": name,
+                "is_verified": bool(row["is_verified"]),
+            }
+    return sorted(by_name.values(), key=lambda item: item["name"].lower())
 
 
 @api_view(["GET"])
@@ -65,17 +77,21 @@ def find_matches(request):
             matches.append({
                 "user_id": user_id,
                 "username": matched_user.username,
-                "teach_me": unique_skill_names(
-                    UserSkill.objects
-                    .filter(user_id=user_id, skill_id__in=teach_me)
-                    .values_list("skill__name", flat=True)
-                    .distinct()
+                # Skills they teach you — use their verification status
+                "teach_me": skill_verification_payload(
+                    UserSkill.objects.filter(
+                        user_id=user_id,
+                        skill_type="teach",
+                        skill_id__in=teach_me,
+                    )
                 ),
-                "teach_them": unique_skill_names(
-                    UserSkill.objects
-                    .filter(user_id=user_id, skill_id__in=teach_them)
-                    .values_list("skill__name", flat=True)
-                    .distinct()
+                # Skills you teach them — use your verification status
+                "teach_them": skill_verification_payload(
+                    UserSkill.objects.filter(
+                        user=current_user,
+                        skill_type="teach",
+                        skill_id__in=teach_them,
+                    )
                 ),
                 "rating_average": profile.rating_average if profile else 0.0,
                 "rating_count": profile.rating_count if profile else 0,

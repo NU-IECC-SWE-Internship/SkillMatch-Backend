@@ -3,11 +3,16 @@ from .models import MatchRequest
 from skillmatch.models import UserSkill
 
 
+class MatchSkillSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    is_verified = serializers.BooleanField()
+
+
 class MatchSerializer(serializers.Serializer):
     user_id = serializers.IntegerField()
     username = serializers.CharField()
-    teach_me = serializers.ListField(child=serializers.CharField())
-    teach_them = serializers.ListField(child=serializers.CharField())
+    teach_me = MatchSkillSerializer(many=True)
+    teach_them = MatchSkillSerializer(many=True)
     rating_average = serializers.FloatField(default=0.0)
     rating_count = serializers.IntegerField(default=0)
 
@@ -20,6 +25,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
     receiver_rating_average = serializers.SerializerMethodField()
     receiver_rating_count = serializers.SerializerMethodField()
     skill_name = serializers.CharField(source="skill.name", read_only=True)
+    skill_is_verified = serializers.SerializerMethodField()
     selected_slot_day = serializers.CharField(
         source="selected_slot.day",
         read_only=True,
@@ -49,6 +55,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "receiver_rating_count",
             "skill",
             "skill_name",
+            "skill_is_verified",
             "selected_slot",
             "selected_slot_day",
             "selected_slot_start_time",
@@ -66,6 +73,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             "receiver_rating_average",
             "receiver_rating_count",
             "skill_name",
+            "skill_is_verified",
             "selected_slot_day",
             "selected_slot_start_time",
             "selected_slot_end_time",
@@ -88,6 +96,15 @@ class MatchRequestSerializer(serializers.ModelSerializer):
     def get_receiver_rating_count(self, obj):
         profile = getattr(obj.receiver, "profile", None)
         return profile.rating_count if profile and profile.rating_count else 0
+
+    def get_skill_is_verified(self, obj):
+        # The requested skill is taught by the receiver.
+        return UserSkill.objects.filter(
+            user=obj.receiver,
+            skill=obj.skill,
+            skill_type="teach",
+            is_verified=True,
+        ).exists()
 
     def validate(self, attrs):
         request = self.context.get("request")
