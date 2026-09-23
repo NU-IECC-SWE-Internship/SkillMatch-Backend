@@ -28,6 +28,16 @@ class MatchRequest(models.Model):
         on_delete=models.PROTECT,
     )
 
+    requested_start_time = models.TimeField(
+        null=True,
+        blank=True,
+    )
+
+    requested_end_time = models.TimeField(
+        null=True,
+        blank=True,
+    )
+
     status = models.CharField(
         max_length=10,
         choices=[

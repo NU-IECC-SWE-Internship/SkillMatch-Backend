@@ -14,89 +14,56 @@ class MatchSerializer(serializers.Serializer):
 
 
 class MatchRequestSerializer(serializers.ModelSerializer):
-    sender_username = serializers.CharField(
-        source="sender.username", 
-        read_only=True
-    )
+    sender_username = serializers.CharField(source="sender.username", read_only=True)
     sender_rating_average = serializers.SerializerMethodField()
     sender_rating_count = serializers.SerializerMethodField()
-
-    receiver_username = serializers.CharField(
-        source="receiver.username", 
-        read_only=True
-    )
+    receiver_username = serializers.CharField(source="receiver.username", read_only=True)
     receiver_rating_average = serializers.SerializerMethodField()
     receiver_rating_count = serializers.SerializerMethodField()
-
-    skill_name = serializers.CharField(
-        source="skill.name", 
-        read_only=True
-    )
+    skill_name = serializers.CharField(source="skill.name", read_only=True)
     receiver_skill_name = serializers.CharField(
-        source="receiver_skill.name", 
-        read_only=True
+        source="receiver_skill.name",
+        read_only=True,
+        allow_null=True,
     )
-
-    selected_slot_day = serializers.CharField(
-        source="selected_slot.day", 
-        read_only=True
-    )
-    selected_slot_start_time = serializers.TimeField(
-        source="selected_slot.start_time", 
-        read_only=True, 
-        format="%H:%M"
-    )
-    selected_slot_end_time = serializers.TimeField(
-        source="selected_slot.end_time", 
-        read_only=True, 
-        format="%H:%M"
-    )
-
-    rejection_reason = serializers.CharField(
-        read_only=True, 
-        allow_null=True
-    )
-
+    selected_slot_day = serializers.CharField(source="selected_slot.day", read_only=True)
+    selected_slot_start_time = serializers.TimeField(source="selected_slot.start_time", read_only=True, format="%H:%M")
+    selected_slot_end_time = serializers.TimeField(source="selected_slot.end_time", read_only=True, format="%H:%M")
+    rejection_reason = serializers.CharField(read_only=True, allow_null=True)
     sender_teach_skills = serializers.SerializerMethodField()
-    teach_me = serializers.ListField(
-        child=serializers.CharField(), 
-        required=False
-    )
-    teach_them = serializers.ListField(
-        child=serializers.CharField(), 
-        required=False
-    )
+    teach_me = serializers.ListField(child=serializers.CharField(), required=False)
+    teach_them = serializers.ListField(child=serializers.CharField(), required=False)
+    requested_start_time = serializers.TimeField(required=False, allow_null=True)
+    requested_end_time = serializers.TimeField(required=False, allow_null=True)
 
     class Meta:
         model = MatchRequest
-
         fields = [
             "id",
-
             "sender",
+            "receiver",
+            "skill",
+            "receiver_skill",
+            "selected_slot",
+            "requested_start_time",
+            "requested_end_time",
+            "status",
             "sender_username",
             "sender_rating_average",
             "sender_rating_count",
-
-            "receiver",
             "receiver_username",
             "receiver_rating_average",
             "receiver_rating_count",
-
-            "skill",
             "skill_name",
-
-            "selected_slot",
+            "receiver_skill_name",
             "selected_slot_day",
             "selected_slot_start_time",
             "selected_slot_end_time",
-
-            "status",
             "rejection_reason",
-            "receiver_skill_name",
             "sender_teach_skills",
+            "teach_me",
+            "teach_them",
         ]
-
         read_only_fields = [
             "id",
 
