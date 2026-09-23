@@ -5,6 +5,7 @@ from .views import (
     create_request,
     get_requests,
     respond_to_request,
+    get_sent_requests,
 )
 
 
@@ -31,5 +32,11 @@ urlpatterns = [
         "requests/<int:pk>/respond/",
         respond_to_request,
         name="respond-request",
+    ),
+
+    path(
+        "requests/sent/",
+        get_sent_requests,
+        name="sent-requests",
     ),
 ]

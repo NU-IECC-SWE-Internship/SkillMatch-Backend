@@ -19,10 +19,10 @@ class Meeting(models.Model):
     end_time = models.DateTimeField()
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default="SCHEDULED")
     
-    room_url = models.URLField(blank=True, default="")
+    room_url = models.URLField(max_length=500, blank=True, default="")
     room_name = models.CharField(max_length=255, blank=True, default="")
-    token_sender = models.CharField(max_length=500, blank=True, default="")
-    token_receiver = models.CharField(max_length=500, blank=True, default="")
+    token_sender = models.TextField(blank=True, default="")
+    token_receiver = models.TextField(blank=True, default="")
     
     created_at = models.DateTimeField(auto_now_add=True)
 

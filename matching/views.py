@@ -1,9 +1,12 @@
+from django.shortcuts import get_object_or_404
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
 from skillmatch.models import UserSkill
+
 from .models import MatchRequest
 from .serializers import MatchSerializer, MatchRequestSerializer
 
@@ -18,9 +21,7 @@ def unique_skill_names(skill_names):
     )
 
 
-# =========================================================
-# FIND MATCHES
-# =========================================================
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -142,9 +143,7 @@ def find_matches(request):
     )
 
 
-# =========================================================
-# CREATE MATCH REQUEST
-# =========================================================
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -176,9 +175,7 @@ def create_request(request):
     )
 
 
-# =========================================================
-# GET INCOMING REQUESTS
-# =========================================================
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -210,71 +207,88 @@ def get_requests(request):
 @permission_classes([IsAuthenticated])
 def respond_to_request(request, pk):
 
-    try:
-        match_request = (
-            MatchRequest.objects
-            .select_related(
-                "sender",
-                "receiver",
-                "selected_slot"
-            )
-            .get(pk=pk)
-        )
+    match_req = get_object_or_404(
+        MatchRequest.objects.select_related(
+            "sender",
+            "receiver",
+            "selected_slot",
+            "skill",
+        ),
+        pk=pk,
+        receiver=request.user,
+    )
 
-    except MatchRequest.DoesNotExist:
-
-        return Response(
-            {
-                "error":
-                    "Request not found."
-            },
-            status=status.HTTP_404_NOT_FOUND
-        )
-
-    # Only the receiver can respond
-    if request.user != match_request.receiver:
-
-        return Response(
-            {
-                "error":
-                    "Only the receiver can respond to this request."
-            },
-            status=status.HTTP_403_FORBIDDEN
-        )
-
-    # Prevent responding more than once
-    if match_request.status != "PENDING":
-
+    # Prevent handling the same request more than once
+    if match_req.status != "PENDING":
         return Response(
             {
                 "error":
                     "This request has already been processed."
             },
-            status=status.HTTP_400_BAD_REQUEST
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-    raw_action = (
-        request.data.get("action")
-        if request.data
-        else None
-    )
-
-    action = (
-        str(raw_action).lower()
-        if raw_action
-        else ""
-    )
+    action = str(
+        request.data.get(
+            "action",
+            ""
+        )
+    ).strip().lower()
 
 
-    # =====================================================
-    # ACCEPT REQUEST
-    # =====================================================
+    if action == "reject":
 
-    if action in [
-        "accept",
-        "accepted"
-    ]:
+        rejection_reason = str(
+            request.data.get(
+                "rejection_reason",
+                ""
+            )
+        ).strip()
 
+        if not rejection_reason:
+            return Response(
+                {
+                    "error":
+                        "A rejection reason is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_req.status = "REJECTED"
+
+        match_req.rejection_reason = (
+            rejection_reason
+        )
+
+        match_req.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+            ]
+        )
+
+        return Response(
+            {
+                "message":
+                    "Request rejected.",
+
+                "status":
+                    "REJECTED",
+
+                "rejection_reason":
+                    rejection_reason,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+    if action == "accept":
+
+        # The meeting must be created successfully first.
+        # create_meeting_for_match_request handles
+        # the accepted request state.
         from meetings.views import (
             create_meeting_for_match_request
         )
@@ -287,13 +301,12 @@ def respond_to_request(request, pk):
 
         meeting, err = (
             create_meeting_for_match_request(
-                match_request,
-                user_timezone=user_timezone
+                match_req,
+                user_timezone=user_timezone,
             )
         )
 
         if err:
-
             err_data, err_status = err
 
             return Response(
@@ -304,81 +317,49 @@ def respond_to_request(request, pk):
         return Response(
             {
                 "message":
-                    "Request accepted and meeting scheduled.",
+                    "Request accepted and meeting scheduled successfully.",
 
                 "status":
                     "ACCEPTED",
 
                 "meeting_id":
                     meeting.id,
+
+                "room_url":
+                    meeting.room_url,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
 
-    # =====================================================
-    # REJECT REQUEST
-    # =====================================================
-
-    if action in [
-        "reject",
-        "decline"
-    ]:
-
-        rejection_reason = (
-            request.data.get(
-                "rejection_reason",
-                ""
-            )
-            if request.data
-            else ""
-        )
-
-        rejection_reason = (
-            str(rejection_reason).strip()
-            if rejection_reason
-            else ""
-        )
-
-        match_request.status = (
-            "REJECTED"
-        )
-
-        match_request.rejection_reason = (
-            rejection_reason
-            or None
-        )
-
-        match_request.save(
-            update_fields=[
-                "status",
-                "rejection_reason",
-            ]
-        )
-
-        return Response(
-            {
-                "message":
-                    "Request declined.",
-
-                "status":
-                    "REJECTED",
-
-                "rejection_reason":
-                    match_request.rejection_reason,
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-    # =====================================================
-    # INVALID ACTION
-    # =====================================================
 
     return Response(
         {
             "error":
-                f"Invalid action '{raw_action}'."
+                "Invalid action."
         },
-        status=status.HTTP_400_BAD_REQUEST
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_sent_requests(request):
+
+    requests = (
+        MatchRequest.objects
+        .filter(
+            sender=request.user
+        )
+        .order_by("-id")
+    )
+
+    serializer = MatchRequestSerializer(
+        requests,
+        many=True
+    )
+
+    return Response(
+        serializer.data
     )

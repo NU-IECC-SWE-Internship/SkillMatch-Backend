@@ -33,7 +33,7 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
         "monday": 0, "tuesday": 1, "wednesday": 2,
         "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
     }
-    target_weekday = day_map.get(slot.day.lower(), 0)
+    target_weekday = day_map.get(str(slot.day).lower(), 0)
     days_ahead = (target_weekday - now_user.weekday() + 7) % 7
     target_date = now_user.date() + timedelta(days=days_ahead)
 
@@ -53,24 +53,32 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
 
     try:
         room_data = service.create_scheduled_room(start_ts, end_ts)
-        token_sender = service.create_scheduled_token(room_data['name'], match_request.sender.username, start_ts, end_ts)
-        token_receiver = service.create_scheduled_token(room_data['name'], match_request.receiver.username, start_ts, end_ts)
+        token_sender = service.create_scheduled_token(
+            room_data['name'], match_request.sender.username, start_ts, end_ts
+        )
+        token_receiver = service.create_scheduled_token(
+            room_data['name'], match_request.receiver.username, start_ts, end_ts
+        )
     except Exception as e:
         return None, ({"error": f"Video service error: {str(e)}"}, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    meeting = Meeting.objects.create(
-        request=match_request,
-        start_time=start_time_utc,
-        end_time=end_time_utc,
-        status="SCHEDULED",
-        room_url=room_data['url'],
-        room_name=room_data['name'],
-        token_sender=token_sender,
-        token_receiver=token_receiver,
-    )
+    try:
+        meeting = Meeting.objects.create(
+            request=match_request,
+            start_time=start_time_utc,
+            end_time=end_time_utc,
+            status="SCHEDULED",
+            room_url=room_data.get('url') or "",
+            room_name=room_data.get('name') or "",
+            token_sender=token_sender,
+            token_receiver=token_receiver,
+        )
+    except Exception as e:
+        return None, ({"error": f"Could not save meeting: {str(e)}"}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     match_request.status = "ACCEPTED"
-    match_request.save(update_fields=['status'])
+    match_request.rejection_reason = None
+    match_request.save(update_fields=['status', 'rejection_reason'])
 
     return meeting, None
 
