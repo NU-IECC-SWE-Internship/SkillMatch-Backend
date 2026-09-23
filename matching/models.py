@@ -7,7 +7,8 @@ class MatchRequest(models.Model):
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="sent_match_requests"
+        related_name="sent_match_requests",
+        
     )
 
     receiver = models.ForeignKey(
@@ -35,3 +36,18 @@ class MatchRequest(models.Model):
         ],
         default="PENDING"
     )
+
+status = models.CharField(
+    max_length=10,
+    choices=[
+        ("PENDING", "Pending"),
+        ("ACCEPTED", "Accepted"),
+        ("REJECTED", "Rejected"),
+    ],
+    default="PENDING"
+)
+
+rejection_reason = models.TextField(
+    blank=True,
+    null=True
+)

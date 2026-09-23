@@ -110,3 +110,59 @@ def get_requests(request):
     serializer = MatchRequestSerializer(requests, many=True)
 
     return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def respond_to_request(request, request_id):
+    try:
+        match_request = MatchRequest.objects.get(
+            id=request_id,
+            receiver=request.user
+        )
+    except MatchRequest.DoesNotExist:
+        return Response(
+            {
+                "detail": "Request not found."
+            },
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if match_request.status != "PENDING":
+        return Response(
+            {
+                "detail": "This request has already been processed."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    action = request.data.get("action")
+
+    if action == "accept":
+        match_request.status = "ACCEPTED"
+
+    elif action == "reject":
+        match_request.status = "REJECTED"
+
+    else:
+        return Response(
+            {
+                "detail": "Action must be 'accept' or 'reject'."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    match_request.save(
+        update_fields=["status"]
+    )
+
+    return Response(
+        {
+            "message": (
+                "Request accepted successfully."
+                if action == "accept"
+                else "Request rejected successfully."
+            ),
+            "status": match_request.status,
+        },
+        status=status.HTTP_200_OK
+    )

@@ -5,10 +5,14 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from .views import RegisterView, MeView
+from .views import (
+    RegisterView,
+    MeView,
+)
 
 
 urlpatterns = [
+
     path(
         "register/",
         RegisterView.as_view(),
