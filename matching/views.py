@@ -63,24 +63,42 @@ def find_matches(request):
         teach_them = teach & their_learn
 
         if teach_me and teach_them:
+            teach_me_names = unique_skill_names(
+                UserSkill.objects
+                .filter(user_id=user_id, skill_id__in=teach_me)
+                .values_list("skill__name", flat=True)
+                .distinct()
+            )
+            teach_them_names = unique_skill_names(
+                UserSkill.objects
+                .filter(user_id=user_id, skill_id__in=teach_them)
+                .values_list("skill__name", flat=True)
+                .distinct()
+            )
+
+            teach_me_ids = sorted(
+                UserSkill.objects.filter(
+                    user_id=user_id,
+                    skill_id__in=teach_me,
+                ).values_list("skill_id", flat=True).distinct()
+            )
+            teach_them_ids = sorted(
+                UserSkill.objects.filter(
+                    user_id=user_id,
+                    skill_id__in=teach_them,
+                ).values_list("skill_id", flat=True).distinct()
+            )
+
             matches.append({
                 "user_id": user_id,
                 "username": UserSkill.objects
                     .filter(user_id=user_id)
                     .first()
                     .user.username,
-                "teach_me": unique_skill_names(
-                    UserSkill.objects
-                    .filter(user_id=user_id, skill_id__in=teach_me)
-                    .values_list("skill__name", flat=True)
-                    .distinct()
-                ),
-                "teach_them": unique_skill_names(
-                    UserSkill.objects
-                    .filter(user_id=user_id, skill_id__in=teach_them)
-                    .values_list("skill__name", flat=True)
-                    .distinct()
-                ),
+                "teach_me": teach_me_names,
+                "teach_them": teach_them_names,
+                "teach_me_ids": teach_me_ids,
+                "teach_them_ids": teach_them_ids,
             })
 
     return Response(MatchSerializer(matches, many=True).data)
@@ -167,19 +185,17 @@ def respond_to_request(request, pk):
 
     if action == "accept":
         receiver_skill_id = request.data.get("receiver_skill") if request.data else None
-        if receiver_skill_id is None:
-            return Response(
-                {"error": "A skill must be selected to accept this request."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        try:
-            receiver_skill = Skill.objects.get(pk=receiver_skill_id)
-        except Skill.DoesNotExist:
-            return Response(
-                {"error": "Selected skill is invalid."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if receiver_skill_id is not None:
+            try:
+                receiver_skill = Skill.objects.get(pk=receiver_skill_id)
+            except Skill.DoesNotExist:
+                return Response(
+                    {"error": "Selected skill is invalid."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            receiver_skill = None
 
         match_req.receiver_skill = receiver_skill
         match_req.status = "ACCEPTED"
@@ -205,8 +221,8 @@ def respond_to_request(request, pk):
                 "status": "ACCEPTED",
                 "meeting_id": meeting.id,
                 "room_url": meeting.room_url,
-                "receiver_skill": receiver_skill.id,
-                "receiver_skill_name": receiver_skill.name,
+                "receiver_skill": receiver_skill.id if receiver_skill else None,
+                "receiver_skill_name": receiver_skill.name if receiver_skill else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -238,7 +254,6 @@ def get_sent_requests(request):
 def get_teachers(request):
     user = request.user
 
-    # Skills that THIS user wants to learn
     my_learning_skills = UserSkill.objects.filter(
         user=user,
         skill_type="learn"
@@ -249,7 +264,6 @@ def get_teachers(request):
         for user_skill in my_learning_skills
     ]
 
-    # Optional filter
     skill_id = request.query_params.get("skill")
 
     teaching_skills = UserSkill.objects.filter(
@@ -267,7 +281,6 @@ def get_teachers(request):
     for user_skill in teaching_skills:
         teacher = user_skill.user
 
-        # Don't show yourself
         if teacher.id == user.id:
             continue
 
