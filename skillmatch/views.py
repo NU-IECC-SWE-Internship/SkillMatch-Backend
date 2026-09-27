@@ -16,6 +16,7 @@ from .models import (
 
 from .serializers import (
     ProfileSerializer,
+    ShowProfileSerializer,
     SkillSerializer,
     UserSkillSerializer,
     AvailabilitySlotSerializer,
@@ -452,3 +453,20 @@ class AvailabilityUpdateDeleteView(
         return AvailabilitySlot.objects.filter(
             user=self.request.user
         )
+class UserProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            profile = Profile.objects.select_related("user").get(
+                user_id=user_id
+            )
+        except Profile.DoesNotExist:
+            return Response(
+                {"detail": "User profile not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ShowProfileSerializer(profile)
+
+        return Response(serializer.data)

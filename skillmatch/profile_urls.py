@@ -12,6 +12,7 @@ from .views import (
     SkillQuizSubmitView,
     UserAvailabilityView,
     UserSessionSettingsView,
+    UserProfileView,
 )
 
 
@@ -80,5 +81,11 @@ urlpatterns = [
         UserSessionSettingsView.as_view(),
         name="user-session-settings"
     ),
+    path(
+        "users/<int:user_id>/profile/",
+        UserProfileView.as_view(),
+        name="user-profile",
+    ),
+
 ]
 
