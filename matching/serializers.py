@@ -114,6 +114,7 @@ class MatchRequestSerializer(serializers.ModelSerializer):
                 user=obj.sender,
                 skill_type="teach",
                 skill_id__in=receiver_learn_skill_ids,
+                skill__is_approved=True,
             )
             .select_related("skill")
             .order_by("skill__name")
@@ -172,6 +173,11 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         if sender and receiver == sender:
             raise serializers.ValidationError(
                 {"receiver": "You cannot send a match request to yourself."}
+            )
+
+        if skill and not skill.is_approved:
+            raise serializers.ValidationError(
+                {"skill": "This skill is waiting for admin approval."}
             )
 
         # 2. Receiver must actually teach the selected skill

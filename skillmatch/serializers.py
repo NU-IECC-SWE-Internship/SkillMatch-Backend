@@ -47,6 +47,30 @@ class SkillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "is_approved",
+        ]
+        read_only_fields = ["is_approved"]
+
+
+class AdminSkillSerializer(serializers.ModelSerializer):
+
+    created_by_username = serializers.CharField(
+        source="created_by.username",
+        read_only=True,
+        default=None,
+    )
+    user_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Skill
+
+        fields = [
+            "id",
+            "name",
+            "is_approved",
+            "created_by_username",
+            "created_at",
+            "user_count",
         ]
 
 
@@ -54,6 +78,10 @@ class UserSkillSerializer(serializers.ModelSerializer):
 
     skill_name = serializers.CharField(
         source="skill.name",
+        read_only=True
+    )
+    skill_is_approved = serializers.BooleanField(
+        source="skill.is_approved",
         read_only=True
     )
     has_quiz_attempt = serializers.SerializerMethodField()
@@ -68,6 +96,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "id",
             "skill",
             "skill_name",
+            "skill_is_approved",
             "skill_type",
             "is_verified",
             "has_quiz_attempt",
@@ -78,6 +107,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "skill_name",
+            "skill_is_approved",
             "is_verified",
             "has_quiz_attempt",
             "quiz_score",
@@ -106,7 +136,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
         return attempt.score if attempt else None
 
     def get_can_take_quiz(self, obj):
-        if obj.skill_type != "teach":
+        if obj.skill_type != "teach" or not obj.skill.is_approved:
             return False
         can_take, _attempt, _available_at = self._availability(obj)
         return can_take
@@ -185,7 +215,11 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "email",
+            "is_staff",
         ]
+        read_only_fields = ["is_staff"]
+
+
 class PublicUserSkillSerializer(serializers.ModelSerializer):
     skill_name = serializers.CharField(
         source="skill.name",
@@ -224,7 +258,8 @@ class ShowProfileSerializer(serializers.ModelSerializer):
     def get_teach_skills(self, obj):
         skills = UserSkill.objects.filter(
             user=obj.user,
-            skill_type="teach"
+            skill_type="teach",
+            skill__is_approved=True,
         )
 
         return PublicUserSkillSerializer(
@@ -235,7 +270,8 @@ class ShowProfileSerializer(serializers.ModelSerializer):
     def get_learn_skills(self, obj):
         skills = UserSkill.objects.filter(
             user=obj.user,
-            skill_type="learn"
+            skill_type="learn",
+            skill__is_approved=True,
         )
 
         return PublicUserSkillSerializer(
