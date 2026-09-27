@@ -218,3 +218,63 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
         ]
         read_only_fields = ["is_staff"]
+
+
+class PublicUserSkillSerializer(serializers.ModelSerializer):
+    skill_name = serializers.CharField(
+        source="skill.name",
+        read_only=True
+    )
+
+    class Meta:
+        model = UserSkill
+        fields = [
+            "skill",
+            "skill_name",
+            "skill_type",
+            "is_verified",
+        ]
+class ShowProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(
+        source="user.username",
+        read_only=True
+    )
+
+    teach_skills = serializers.SerializerMethodField()
+    learn_skills = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Profile
+        fields = [
+            "user",
+            "username",
+            "bio",
+            "rating_average",
+            "rating_count",
+            "teach_skills",
+            "learn_skills",
+        ]
+
+    def get_teach_skills(self, obj):
+        skills = UserSkill.objects.filter(
+            user=obj.user,
+            skill_type="teach",
+            skill__is_approved=True,
+        )
+
+        return PublicUserSkillSerializer(
+            skills,
+            many=True
+        ).data
+
+    def get_learn_skills(self, obj):
+        skills = UserSkill.objects.filter(
+            user=obj.user,
+            skill_type="learn",
+            skill__is_approved=True,
+        )
+
+        return PublicUserSkillSerializer(
+            skills,
+            many=True
+        ).data

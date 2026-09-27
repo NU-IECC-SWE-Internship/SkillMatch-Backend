@@ -18,6 +18,7 @@ from .models import (
 
 from .serializers import (
     ProfileSerializer,
+    ShowProfileSerializer,
     SkillSerializer,
     UserSkillSerializer,
     AvailabilitySlotSerializer,
@@ -597,3 +598,22 @@ class AdminSkillDenyView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response({"id": pk, "status": "denied"})
+
+
+class UserProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            profile = Profile.objects.select_related("user").get(
+                user_id=user_id
+            )
+        except Profile.DoesNotExist:
+            return Response(
+                {"detail": "User profile not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ShowProfileSerializer(profile)
+
+        return Response(serializer.data)

@@ -12,6 +12,7 @@ from .views import (
     SkillQuizSubmitView,
     UserAvailabilityView,
     UserSessionSettingsView,
+    UserProfileView,
     AdminSkillListView,
     AdminSkillApproveView,
     AdminSkillDenyView,
@@ -85,6 +86,12 @@ urlpatterns = [
     ),
 
     path(
+        "users/<int:user_id>/profile/",
+        UserProfileView.as_view(),
+        name="user-profile",
+    ),
+
+    path(
         "admin/skills/",
         AdminSkillListView.as_view(),
         name="admin-skills"
@@ -102,4 +109,3 @@ urlpatterns = [
         name="admin-skill-deny"
     ),
 ]
-
