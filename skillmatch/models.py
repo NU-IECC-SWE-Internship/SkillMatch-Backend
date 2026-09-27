@@ -59,6 +59,22 @@ class Skill(models.Model):
         unique=True
     )
 
+    # Custom skills added by regular users stay hidden until an admin approves them.
+    is_approved = models.BooleanField(default=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_skills",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        null=True,
+    )
+
     def __str__(self):
         return self.name
 
@@ -156,6 +172,7 @@ class SkillQuizAttempt(models.Model):
     )
     score = models.PositiveSmallIntegerField()
     passed = models.BooleanField(default=False)
+    abandoned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

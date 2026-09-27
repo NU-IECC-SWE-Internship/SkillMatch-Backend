@@ -13,6 +13,8 @@ from .models import (
 
 @admin.register(Skill)
 class SkillAdmin(admin.ModelAdmin):
+    list_display = ["name", "is_approved", "created_by", "created_at"]
+    list_filter = ["is_approved"]
     search_fields = ["name"]
 
 
@@ -25,8 +27,8 @@ class SkillQuizQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(SkillQuizAttempt)
 class SkillQuizAttemptAdmin(admin.ModelAdmin):
-    list_display = ["user", "skill", "score", "passed", "created_at"]
-    list_filter = ["passed", "skill"]
+    list_display = ["user", "skill", "score", "passed", "abandoned", "created_at"]
+    list_filter = ["passed", "abandoned", "skill"]
 
 
 @admin.register(PendingSkillQuiz)

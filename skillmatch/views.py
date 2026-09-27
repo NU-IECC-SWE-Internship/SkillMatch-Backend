@@ -3,7 +3,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
+from django.db.models import Count, ProtectedError, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from .models import (
     Profile,
@@ -22,12 +24,38 @@ from .serializers import (
     RegisterSerializer,
     UserSerializer,
     QuizSubmitSerializer,
+    AdminSkillSerializer,
 )
 from .quiz_llm import QuizGenerationError, generate_quiz_questions
-from .quiz_policy import quiz_availability
+from .quiz_policy import START_GRACE, expire_abandoned_quiz, quiz_availability
 
 PASS_SCORE = 7
 QUIZ_QUESTION_COUNT = 10
+
+# Must stay in sync with the suggested skills in the frontend (Profile / onboarding).
+DEFAULT_SKILL_NAMES = {
+    "python",
+    "javascript",
+    "react",
+    "django",
+    "machine learning",
+    "data analysis",
+    "figma",
+    "ui/ux",
+}
+
+SKILL_PENDING_ERROR = "This skill is waiting for admin approval."
+
+
+def attempt_payload(attempt):
+    if attempt is None:
+        return None
+    return {
+        "score": attempt.score,
+        "passed": attempt.passed,
+        "abandoned": attempt.abandoned,
+        "created_at": attempt.created_at,
+    }
 
 
 class RegisterView(generics.CreateAPIView):
@@ -71,9 +99,50 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 
 
 class SkillListCreateView(generics.ListCreateAPIView):
-    queryset = Skill.objects.all()
+    """
+    Lists approved skills plus the user's own pending ones.
+    New skills are auto-approved for staff and the default suggestions;
+    anything else waits for an admin.
+    """
+
     serializer_class = SkillSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            Skill.objects
+            .filter(
+                Q(is_approved=True)
+                | Q(created_by=user)
+                | Q(users__user=user)
+            )
+            .distinct()
+            .order_by("name")
+        )
+
+    def create(self, request, *args, **kwargs):
+        name = str(request.data.get("name", "")).strip()
+        if not name:
+            return Response(
+                {"name": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing = Skill.objects.filter(name__iexact=name).first()
+        if existing:
+            return Response(SkillSerializer(existing).data, status=status.HTTP_200_OK)
+
+        serializer = self.get_serializer(data={"name": name})
+        serializer.is_valid(raise_exception=True)
+        skill = serializer.save(
+            created_by=request.user,
+            is_approved=(
+                request.user.is_staff
+                or name.lower() in DEFAULT_SKILL_NAMES
+            ),
+        )
+        return Response(SkillSerializer(skill).data, status=status.HTTP_201_CREATED)
 
 
 class UserSkillListCreateView(generics.ListCreateAPIView):
@@ -121,6 +190,16 @@ class SkillQuizView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if not skill.is_approved:
+            return Response(
+                {"error": SKILL_PENDING_ERROR},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Coming back to the quiz page means any started quiz was abandoned.
+        if not user_skill.is_verified:
+            expire_abandoned_quiz(request.user, skill)
+
         can_take, attempt, available_at = quiz_availability(
             request.user,
             skill,
@@ -137,15 +216,7 @@ class SkillQuizView(APIView):
                 "has_attempt": attempt is not None,
                 "available_at": available_at,
                 "cooldown_hours": 24,
-                "attempt": (
-                    None
-                    if attempt is None
-                    else {
-                        "score": attempt.score,
-                        "passed": attempt.passed,
-                        "created_at": attempt.created_at,
-                    }
-                ),
+                "attempt": attempt_payload(attempt),
                 "questions": [],
             }
         )
@@ -170,6 +241,36 @@ class SkillQuizStartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if not skill.is_approved:
+            return Response(
+                {"error": SKILL_PENDING_ERROR},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        pending = PendingSkillQuiz.objects.filter(
+            user=request.user,
+            skill=skill,
+        ).first()
+
+        # A duplicate Start right after the first one gets the same questions.
+        if (
+            pending
+            and pending.questions
+            and timezone.now() - pending.created_at < START_GRACE
+        ):
+            return Response(
+                {
+                    "skill_id": skill.id,
+                    "skill_name": skill.name,
+                    "pass_score": PASS_SCORE,
+                    "questions": pending.public_questions(),
+                }
+            )
+
+        # Any older unfinished quiz counts as a failed attempt.
+        if not user_skill.is_verified:
+            expire_abandoned_quiz(request.user, skill)
+
         can_take, attempt, available_at = quiz_availability(
             request.user,
             skill,
@@ -188,28 +289,10 @@ class SkillQuizStartView(APIView):
                     ),
                     "available_at": available_at,
                     "last_score": attempt.score if attempt else None,
+                    "attempt": attempt_payload(attempt),
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
-
-        pending = PendingSkillQuiz.objects.filter(
-            user=request.user,
-            skill=skill,
-        ).first()
-
-        # Reuse an unfinished pending quiz only if there is no newer attempt
-        # after it was created (i.e. still the same "session").
-        if pending and pending.questions:
-            if attempt is None or pending.created_at > attempt.created_at:
-                return Response(
-                    {
-                        "skill_id": skill.id,
-                        "skill_name": skill.name,
-                        "pass_score": PASS_SCORE,
-                        "questions": pending.public_questions(),
-                    }
-                )
-            pending.delete()
 
         try:
             generated = generate_quiz_questions(
@@ -452,3 +535,65 @@ class AvailabilityUpdateDeleteView(
         return AvailabilitySlot.objects.filter(
             user=self.request.user
         )
+
+
+# =========================================================
+# ADMIN — SKILL APPROVAL
+# =========================================================
+
+def admin_skill_queryset():
+    return (
+        Skill.objects
+        .select_related("created_by")
+        .annotate(user_count=Count("users__user", distinct=True))
+    )
+
+
+class AdminSkillListView(APIView):
+    """GET ?status=pending (default) | approved"""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        approved = request.query_params.get("status", "pending") == "approved"
+        skills = (
+            admin_skill_queryset()
+            .filter(is_approved=approved)
+            .order_by("-created_at", "name")
+        )
+        return Response(AdminSkillSerializer(skills, many=True).data)
+
+
+class AdminSkillApproveView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        skill = get_object_or_404(Skill, pk=pk)
+        if not skill.is_approved:
+            skill.is_approved = True
+            skill.save(update_fields=["is_approved"])
+        return Response(
+            AdminSkillSerializer(admin_skill_queryset().get(pk=pk)).data
+        )
+
+
+class AdminSkillDenyView(APIView):
+    """Denying removes the pending skill (and it disappears from users' profiles)."""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        skill = get_object_or_404(Skill, pk=pk)
+        if skill.is_approved:
+            return Response(
+                {"error": "Only pending skills can be denied."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            skill.delete()
+        except ProtectedError:
+            return Response(
+                {"error": "This skill is used by existing requests and can't be removed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"id": pk, "status": "denied"})

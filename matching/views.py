@@ -9,6 +9,11 @@ from .models import MatchRequest
 from .serializers import MatchRequestSerializer, MatchSerializer
 
 
+def approved_user_skills():
+    """UserSkills whose catalog skill has been approved by an admin."""
+    return UserSkill.objects.filter(skill__is_approved=True)
+
+
 def skill_verification_payload(queryset):
     """Unique {name, is_verified} entries, preferring verified when duplicates exist."""
     by_name = {}
@@ -35,7 +40,7 @@ def find_matches(request):
     current_user = request.user
 
     teach = set(
-        UserSkill.objects.filter(
+        approved_user_skills().filter(
             user=current_user,
             skill_type="teach"
         ).values_list(
@@ -45,7 +50,7 @@ def find_matches(request):
     )
 
     learn = set(
-        UserSkill.objects.filter(
+        approved_user_skills().filter(
             user=current_user,
             skill_type="learn"
         ).values_list(
@@ -57,7 +62,7 @@ def find_matches(request):
     matches = []
 
     result_users = (
-        UserSkill.objects
+        approved_user_skills()
         .exclude(user=current_user)
         .values_list(
             "user",
@@ -69,7 +74,7 @@ def find_matches(request):
     for user_id in result_users:
 
         their_teach = set(
-            UserSkill.objects.filter(
+            approved_user_skills().filter(
                 user_id=user_id,
                 skill_type="teach"
             ).values_list(
@@ -79,7 +84,7 @@ def find_matches(request):
         )
 
         their_learn = set(
-            UserSkill.objects.filter(
+            approved_user_skills().filter(
                 user_id=user_id,
                 skill_type="learn"
             ).values_list(
@@ -100,7 +105,7 @@ def find_matches(request):
 
         if teach_me and teach_them:
             first_user_skill = (
-                UserSkill.objects
+                approved_user_skills()
                 .filter(user_id=user_id)
                 .select_related("user__profile")
                 .first()
@@ -117,7 +122,7 @@ def find_matches(request):
                 "username": matched_user.username,
                 # Skills they teach you — use their verification status
                 "teach_me": skill_verification_payload(
-                    UserSkill.objects.filter(
+                    approved_user_skills().filter(
                         user_id=user_id,
                         skill_type="teach",
                         skill_id__in=teach_me,
@@ -125,7 +130,7 @@ def find_matches(request):
                 ),
                 # Skills you teach them — use your verification status
                 "teach_them": skill_verification_payload(
-                    UserSkill.objects.filter(
+                    approved_user_skills().filter(
                         user=current_user,
                         skill_type="teach",
                         skill_id__in=teach_them,
@@ -295,7 +300,7 @@ def respond_to_request(request, pk):
 
         if receiver_skill_id is not None:
             try:
-                receiver_skill = Skill.objects.get(pk=receiver_skill_id)
+                receiver_skill = Skill.objects.get(pk=receiver_skill_id, is_approved=True)
             except Skill.DoesNotExist:
                 return Response(
                     {"error": "Selected skill is invalid."},
@@ -401,7 +406,7 @@ def get_sent_requests(request):
 def get_teachers(request):
     user = request.user
 
-    my_learning_skills = UserSkill.objects.filter(
+    my_learning_skills = approved_user_skills().filter(
         user=user,
         skill_type="learn"
     ).select_related("skill")
@@ -413,7 +418,7 @@ def get_teachers(request):
 
     skill_id = request.query_params.get("skill")
 
-    teaching_skills = UserSkill.objects.filter(
+    teaching_skills = approved_user_skills().filter(
         skill_type="teach",
         skill_id__in=learning_skill_ids
     ).select_related("user", "skill")
