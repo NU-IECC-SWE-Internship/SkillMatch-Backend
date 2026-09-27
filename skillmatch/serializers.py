@@ -26,6 +26,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "max_session_duration_minutes",
             "rating_average",
             "rating_count",
+            "email_notifications_enabled",
         ]
 
         read_only_fields = [

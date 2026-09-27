@@ -123,4 +123,4 @@ class AvailabilityUpdateDeleteView(
     def get_queryset(self):
         return AvailabilitySlot.objects.filter(
             user=self.request.user
-        )
+        )

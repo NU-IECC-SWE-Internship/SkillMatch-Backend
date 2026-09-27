@@ -12,6 +12,7 @@ from matching.models import MatchRequest
 from .models import Meeting, MeetingRating
 from .serializers import MeetingSerializer, MeetingRatingSerializer
 from .video_service import DailyVideoService
+from skillmatch.emails import send_meeting_cancelled_email
 
 
 def recalculate_user_rating(user):
@@ -208,6 +209,9 @@ class SingleMeetingDetailView(APIView):
         meeting.save(update_fields=['status'])
         meeting.request.status = "CANCELLED"
         meeting.request.save(update_fields=['status'])
+
+        send_meeting_cancelled_email(meeting, cancelled_by=request.user)
+
         return Response({"message": "Meeting cancelled successfully."}, status=status.HTTP_200_OK)
 
 

@@ -46,6 +46,10 @@ class Profile(models.Model):
 
     rating_average = models.FloatField(default=0.0)
     rating_count = models.PositiveIntegerField(default=0)
+    email_notifications_enabled = models.BooleanField(
+        default=True,
+        help_text="Designates whether the user wishes to receive email notifications."
+    )
 
     def __str__(self):
         return self.user.username

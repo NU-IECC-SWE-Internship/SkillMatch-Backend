@@ -7,6 +7,11 @@ from skillmatch.models import UserSkill
 from .serializers import MatchSerializer
 from .models import MatchRequest
 from .serializers import MatchRequestSerializer
+from skillmatch.emails import (
+    send_match_request_received_email,
+    send_match_request_accepted_email,
+    send_match_request_rejected_email,
+)
 
 def unique_skill_names(skill_names):
     return sorted({skill_name for skill_name in skill_names if skill_name})
@@ -93,6 +98,7 @@ def create_request(request):
 
     if serializer.is_valid():
         match_request = serializer.save(sender=request.user)
+        send_match_request_received_email(match_request)
         return Response(
             MatchRequestSerializer(match_request).data,
             status=status.HTTP_201_CREATED
@@ -166,6 +172,8 @@ def respond_to_request(request, pk):
             ]
         )
 
+        send_match_request_rejected_email(match_req)
+
         return Response(
             {
                 "message": "Request rejected.",
@@ -188,6 +196,8 @@ def respond_to_request(request, pk):
         if err:
             err_data, err_status = err
             return Response(err_data, status=err_status)
+
+        send_match_request_accepted_email(match_req, meeting)
 
         return Response(
             {

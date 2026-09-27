@@ -1,0 +1,27 @@
+{% extends "emails/base_email.html" %}
+
+{% block title %}New Match Request from {{ sender.username }} | SkillMatch{% endblock %}
+
+{% block content %}
+  <h2>New Match Request! 🎯</h2>
+  <p>Hi <strong>{{ receiver.username }}</strong>,</p>
+  <p><strong>{{ sender.username }}</strong> sent you a match request on SkillMatch to practice skills together.</p>
+
+  <div class="info-box">
+    <p style="margin: 0 0 8px 0;"><strong>Skill:</strong> {{ skill_name }}</p>
+    {% if requested_slot %}
+      <p style="margin: 0 0 8px 0;"><strong>Proposed Time:</strong> {{ requested_slot }}</p>
+    {% endif %}
+    {% if message %}
+      <p style="margin: 0;"><strong>Message:</strong> <em>"{{ message }}"</em></p>
+    {% endif %}
+  </div>
+
+  <div class="btn-container">
+    <a href="{{ site_url }}/requests" class="btn">View & Respond to Request</a>
+  </div>
+
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
+    You can accept the request to automatically schedule a video session based on your mutual availability, or decline with a reason.
+  </p>
+{% endblock %}
