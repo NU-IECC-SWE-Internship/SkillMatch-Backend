@@ -421,7 +421,7 @@ def get_teachers(request):
     teaching_skills = approved_user_skills().filter(
         skill_type="teach",
         skill_id__in=learning_skill_ids
-    ).select_related("user", "skill")
+    ).select_related("user__profile", "skill")
 
     if skill_id:
         teaching_skills = teaching_skills.filter(
@@ -437,9 +437,12 @@ def get_teachers(request):
             continue
 
         if teacher.id not in teachers:
+            profile = getattr(teacher, "profile", None)
             teachers[teacher.id] = {
                 "user_id": teacher.id,
                 "username": teacher.username,
+                "rating_average": profile.rating_average if profile else 0.0,
+                "rating_count": profile.rating_count if profile else 0,
                 "skills": []
             }
 
