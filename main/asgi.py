@@ -13,4 +13,17 @@ from django.core.asgi import get_asgi_application
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'main.settings')
 
-application = get_asgi_application()
+# Load Django first so the app registry is ready before importing consumers.
+django_asgi_app = get_asgi_application()
+
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.security.websocket import AllowedHostsOriginValidator
+from chating.auth import JwtAuthMiddleware
+from chating.routing import websocket_urlpatterns
+
+application = ProtocolTypeRouter({
+    'http': django_asgi_app,
+    'websocket': AllowedHostsOriginValidator(
+        JwtAuthMiddleware(URLRouter(websocket_urlpatterns))
+    ),
+})
