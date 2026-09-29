@@ -1,5 +1,6 @@
 asgiref==3.12.1
 certifi==2025.1.31
+channels[daphne]==4.3.2
 charset-normalizer==3.4.1
 Django==6.1.1
 django-cors-headers==4.9.0

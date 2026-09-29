@@ -54,7 +54,7 @@ class MeetingRatingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cannot rate a cancelled meeting.")
 
         now = timezone.now()
-        if now < meeting.start_time:
+        if meeting.status != "COMPLETED" and now < meeting.start_time:
             raise serializers.ValidationError("You cannot rate a meeting before it starts.")
 
         if now > meeting.review_deadline:
@@ -89,13 +89,16 @@ class MeetingRatingSerializer(serializers.ModelSerializer):
             meeting.save(update_fields=['status'])
 
         # Trigger 1: Did both users submit reviews?
-        all_ratings = list(meeting.ratings.all())
+        all_ratings = list(MeetingRating.objects.filter(meeting_id=meeting.id))
         if len(all_ratings) >= 2:
             reveal_now = timezone.now()
             with transaction.atomic():
-                meeting.ratings.update(is_revealed=True, revealed_at=reveal_now)
+                MeetingRating.objects.filter(meeting_id=meeting.id).update(
+                    is_revealed=True,
+                    revealed_at=reveal_now
+                )
                 for r in all_ratings:
-                    recalculate_user_rating(r.reviewed_user)
+                    recalculate_user_rating(r.reviewed_user_id)
 
             rating.refresh_from_db()
 
@@ -178,7 +181,7 @@ class MeetingSerializer(serializers.ModelSerializer):
 
     def _get_ratings(self, obj):
         if not hasattr(obj, '_cached_ratings'):
-            obj._cached_ratings = list(obj.ratings.all())
+            obj._cached_ratings = list(MeetingRating.objects.filter(meeting_id=obj.id))
         return obj._cached_ratings
 
     def get_skill_name(self, obj):
@@ -243,7 +246,7 @@ class MeetingSerializer(serializers.ModelSerializer):
         if not user or not user.is_authenticated or obj.status == "CANCELLED":
             return False
         now = timezone.now()
-        if now < obj.start_time:
+        if obj.status != "COMPLETED" and now < obj.start_time:
             return False
         if now > obj.review_deadline:
             return False

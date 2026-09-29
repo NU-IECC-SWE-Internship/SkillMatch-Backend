@@ -15,41 +15,43 @@ from .video_service import DailyVideoService
 
 
 def recalculate_user_rating(user):
-    if not user or not hasattr(user, 'profile'):
+    if not user:
         return
+    user_id = user.id if hasattr(user, 'id') else user
     stats = MeetingRating.objects.filter(
-        reviewed_user=user,
+        reviewed_user_id=user_id,
         is_revealed=True
     ).aggregate(
         avg_score=Avg('score'),
         total_reviews=Count('id')
     )
 
-    profile = user.profile
+    from skillmatch.models import Profile
+    profile, _ = Profile.objects.get_or_create(user_id=user_id)
     profile.rating_average = round(stats['avg_score'] or 0.0, 2)
     profile.rating_count = stats['total_reviews'] or 0
     profile.save(update_fields=['rating_average', 'rating_count'])
 
 
 def process_expired_ratings():
-    cutoff = timezone.now() - timedelta(hours=48)
-    expired_unrevealed = MeetingRating.objects.filter(
-        is_revealed=False,
-        meeting__end_time__lte=cutoff
-    ).select_related('reviewed_user__profile')
+    now = timezone.now()
+    cutoff = now - timedelta(hours=48)
+    affected_user_ids = set()
 
-    if expired_unrevealed.exists():
-        affected_users = set()
-        now = timezone.now()
-        with transaction.atomic():
-            for r in expired_unrevealed:
-                r.is_revealed = True
-                r.revealed_at = now
-                r.save(update_fields=['is_revealed', 'revealed_at'])
-                affected_users.add(r.reviewed_user)
+    unrevealed_meetings = Meeting.objects.filter(ratings__is_revealed=False).distinct()
+    for m in unrevealed_meetings:
+        ratings = list(MeetingRating.objects.filter(meeting_id=m.id))
+        if len(ratings) >= 2 or (m.end_time and m.end_time <= cutoff):
+            with transaction.atomic():
+                MeetingRating.objects.filter(meeting_id=m.id).update(
+                    is_revealed=True,
+                    revealed_at=now
+                )
+                for r in ratings:
+                    affected_user_ids.add(r.reviewed_user_id)
 
-            for u in affected_users:
-                recalculate_user_rating(u)
+    for uid in affected_user_ids:
+        recalculate_user_rating(uid)
 
 def create_meeting_for_match_request(
     match_request,
@@ -277,6 +279,29 @@ class SingleMeetingDetailView(APIView):
 
         return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
 
+    def patch(self, request, pk):
+        try:
+            meeting = Meeting.objects.select_related(
+                'request__sender', 'request__receiver', 'request__skill'
+            ).prefetch_related('ratings').get(pk=pk)
+        except Meeting.DoesNotExist:
+            return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user not in (meeting.request.sender, meeting.request.receiver):
+            return Response({"error": "You do not have permission to modify this meeting."}, status=status.HTTP_403_FORBIDDEN)
+
+        new_status = request.data.get('status')
+        if new_status:
+            new_status = new_status.upper()
+            if new_status not in dict(Meeting.STATUS_CHOICES):
+                return Response({"error": f"Invalid status '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+            if meeting.status == "CANCELLED":
+                return Response({"error": "Cannot change status of a cancelled meeting."}, status=status.HTTP_400_BAD_REQUEST)
+            meeting.status = new_status
+            meeting.save(update_fields=['status'])
+
+        return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
+
     def delete(self, request, pk):
         try:
             meeting = Meeting.objects.select_related(
@@ -350,9 +375,11 @@ class MeetingReviewsView(APIView):
 
         # Check reveal status
         meeting.refresh_from_db()
+        if hasattr(meeting, '_prefetched_objects_cache'):
+            meeting._prefetched_objects_cache.clear()
         if hasattr(meeting, '_cached_ratings'):
             delattr(meeting, '_cached_ratings')
-        both_revealed = meeting.ratings.filter(is_revealed=True).exists()
+        both_revealed = MeetingRating.objects.filter(meeting_id=meeting.id, is_revealed=True).exists()
 
         return Response({
             "message": "Both reviews submitted! Feedback is now revealed." if both_revealed else "Review submitted successfully and kept private until mutual review or 48 hours.",
