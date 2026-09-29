@@ -121,7 +121,7 @@ class MeetingSerializer(serializers.ModelSerializer):
     receiver_id = serializers.IntegerField(source='request.receiver.id', read_only=True)
     sender_username = serializers.CharField(source='request.sender.username', read_only=True)
     receiver_username = serializers.CharField(source='request.receiver.username', read_only=True)
-    skill_name = serializers.CharField(source='request.skill.name', read_only=True)
+    skill_name = serializers.SerializerMethodField()
 
     # Aliases for frontend compatibility
     participant_a_name = serializers.CharField(source='request.sender.username', read_only=True)
@@ -157,6 +157,7 @@ class MeetingSerializer(serializers.ModelSerializer):
             'partner_name',
             'is_requester',
             'skill_name',
+            'session_type',
             'status',
             'start_time',
             'end_time',
@@ -179,6 +180,14 @@ class MeetingSerializer(serializers.ModelSerializer):
         if not hasattr(obj, '_cached_ratings'):
             obj._cached_ratings = list(obj.ratings.all())
         return obj._cached_ratings
+
+    def get_skill_name(self, obj):
+        if obj.session_type == "RETURN_SKILL":
+           if obj.request.receiver_skill:
+               return obj.request.receiver_skill.name
+           return None
+
+        return obj.request.skill.name
 
     def get_partner_id(self, obj):
         user = self.context.get('request').user if self.context.get('request') else None
