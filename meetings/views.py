@@ -53,16 +53,63 @@ def process_expired_ratings():
     for uid in affected_user_ids:
         recalculate_user_rating(uid)
 
+def create_meeting_for_match_request(
+    match_request,
+    user_timezone=None,
+    session_type="REQUESTED_SKILL",
+):
+    if session_type not in ("REQUESTED_SKILL", "RETURN_SKILL"):
+        return None, (
+            {"error": "Invalid meeting session type."},
+            status.HTTP_400_BAD_REQUEST,
+        )
 
-def create_meeting_for_match_request(match_request, user_timezone=None):
-    if hasattr(match_request, 'meeting'):
-        return match_request.meeting, None
+    existing_meeting = Meeting.objects.filter(
+        request=match_request,
+        session_type=session_type,
+    ).first()
 
-    slot = getattr(match_request, 'selected_slot', None)
+    if existing_meeting:
+        return existing_meeting, None
+
+    if session_type == "REQUESTED_SKILL":
+        slot = getattr(match_request, "selected_slot", None)
+        requested_start_time = match_request.requested_start_time
+        requested_end_time = match_request.requested_end_time
+    else:
+        if not match_request.receiver_skill:
+            return None, (
+                {"error": "No return skill was selected for this swap."},
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        slot = getattr(match_request, "receiver_selected_slot", None)
+        requested_start_time = match_request.receiver_requested_start_time
+        requested_end_time = match_request.receiver_requested_end_time
+
     if not slot:
-        return None, ({"error": "The match request does not have an availability slot attached."}, status.HTTP_400_BAD_REQUEST)
+        return None, (
+            {"error": "The required availability slot has not been selected yet."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    start_clock = requested_start_time or slot.start_time
+    end_clock = requested_end_time or slot.end_time
+
+    if start_clock >= end_clock:
+        return None, (
+            {"error": "The meeting end time must be after the start time."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    if start_clock < slot.start_time or end_clock > slot.end_time:
+        return None, (
+            {"error": "The selected meeting time must be inside the availability slot."},
+            status.HTTP_400_BAD_REQUEST,
+        )
 
     tz_str = user_timezone or "UTC"
+
     try:
         user_tz = zoneinfo.ZoneInfo(tz_str)
     except Exception:
@@ -71,15 +118,35 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
     now_user = timezone.now().astimezone(user_tz)
 
     day_map = {
-        "monday": 0, "tuesday": 1, "wednesday": 2,
-        "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
     }
-    target_weekday = day_map.get(str(slot.day).lower(), 0)
+
+    target_weekday = day_map.get(str(slot.day).lower())
+
+    if target_weekday is None:
+        return None, (
+            {"error": "Invalid availability day."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
     days_ahead = (target_weekday - now_user.weekday() + 7) % 7
     target_date = now_user.date() + timedelta(days=days_ahead)
 
-    user_start = datetime.combine(target_date, slot.start_time).replace(tzinfo=user_tz)
-    user_end = datetime.combine(target_date, slot.end_time).replace(tzinfo=user_tz)
+    user_start = datetime.combine(
+        target_date,
+        start_clock,
+    ).replace(tzinfo=user_tz)
+
+    user_end = datetime.combine(
+        target_date,
+        end_clock,
+    ).replace(tzinfo=user_tz)
 
     if user_start <= now_user:
         user_start += timedelta(days=7)
@@ -90,36 +157,53 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
 
     start_ts = int(start_time_utc.timestamp())
     end_ts = int(end_time_utc.timestamp())
+
     service = DailyVideoService()
 
     try:
-        room_data = service.create_scheduled_room(start_ts, end_ts)
+        room_data = service.create_scheduled_room(
+            start_ts,
+            end_ts,
+        )
+
         token_sender = service.create_scheduled_token(
-            room_data['name'], match_request.sender.username, start_ts, end_ts
+            room_data["name"],
+            match_request.sender.username,
+            start_ts,
+            end_ts,
         )
+
         token_receiver = service.create_scheduled_token(
-            room_data['name'], match_request.receiver.username, start_ts, end_ts
+            room_data["name"],
+            match_request.receiver.username,
+            start_ts,
+            end_ts,
         )
+
     except Exception as e:
-        return None, ({"error": f"Video service error: {str(e)}"}, status.HTTP_503_SERVICE_UNAVAILABLE)
+        return None, (
+            {"error": f"Video service error: {str(e)}"},
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     try:
         meeting = Meeting.objects.create(
             request=match_request,
+            session_type=session_type,
             start_time=start_time_utc,
             end_time=end_time_utc,
             status="SCHEDULED",
-            room_url=room_data.get('url') or "",
-            room_name=room_data.get('name') or "",
+            room_url=room_data.get("url") or "",
+            room_name=room_data.get("name") or "",
             token_sender=token_sender,
             token_receiver=token_receiver,
         )
-    except Exception as e:
-        return None, ({"error": f"Could not save meeting: {str(e)}"}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    match_request.status = "ACCEPTED"
-    match_request.rejection_reason = None
-    match_request.save(update_fields=['status', 'rejection_reason'])
+    except Exception as e:
+        return None, (
+            {"error": f"Could not save meeting: {str(e)}"},
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return meeting, None
 
