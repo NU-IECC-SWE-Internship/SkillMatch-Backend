@@ -7,9 +7,10 @@ urlpatterns = [
     # Authentication
     path('api/auth/', include('skillmatch.urls')),
 
-    # Your profile feature
+    # Profile and matching features
     path("api/", include("skillmatch.profile_urls")),
     path("api/", include("matching.urls")),
+    path('api/', include('chating.urls')),
 
     # Meetings feature
     path('', include('meetings.urls')),

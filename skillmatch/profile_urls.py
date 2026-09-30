@@ -6,39 +6,106 @@ from .views import (
     UserSkillListCreateView,
     UserSkillDeleteView,
     AvailabilityListCreateView,
-    UserAvailabilityView,
     AvailabilityUpdateDeleteView,
+    SkillQuizView,
+    SkillQuizStartView,
+    SkillQuizSubmitView,
+    UserAvailabilityView,
+    UserSessionSettingsView,
+    UserProfileView,
+    AdminSkillListView,
+    AdminSkillApproveView,
+    AdminSkillDenyView,
 )
 
 
 urlpatterns = [
-    path("profile/", ProfileView.as_view(), name="profile"),
 
-    path("skills/", SkillListCreateView.as_view(), name="skills"),
+    path(
+        "profile/",
+        ProfileView.as_view(),
+        name="profile"
+    ),
 
-    path("my-skills/", UserSkillListCreateView.as_view(), name="my-skills"),
+    path(
+        "skills/<int:skill_id>/quiz/",
+        SkillQuizView.as_view(),
+        name="skill-quiz",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/start/",
+        SkillQuizStartView.as_view(),
+        name="skill-quiz-start",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/submit/",
+        SkillQuizSubmitView.as_view(),
+        name="skill-quiz-submit",
+    ),
+
+    path(
+        "skills/",
+        SkillListCreateView.as_view(),
+        name="skills"
+    ),
+
+    path(
+        "my-skills/",
+        UserSkillListCreateView.as_view(),
+        name="my-skills"
+    ),
 
     path(
         "my-skills/<int:pk>/",
         UserSkillDeleteView.as_view(),
-        name="delete-user-skill",
+        name="my-skill-delete"
     ),
 
     path(
         "availability/",
         AvailabilityListCreateView.as_view(),
-        name="availability",
-    ),
-
-    path(
-        "users/<int:user_id>/availability/",
-        UserAvailabilityView.as_view(),
-        name="user-availability",
+        name="availability"
     ),
 
     path(
         "availability/<int:pk>/",
         AvailabilityUpdateDeleteView.as_view(),
-        name="availability-detail",
+        name="availability-detail"
+    ),
+
+    path(
+        "users/<int:user_id>/availability/",
+        UserAvailabilityView.as_view(),
+        name="user-availability"
+    ),
+
+    path(
+        "users/<int:user_id>/session-settings/",
+        UserSessionSettingsView.as_view(),
+        name="user-session-settings"
+    ),
+
+    path(
+        "users/<int:user_id>/profile/",
+        UserProfileView.as_view(),
+        name="user-profile",
+    ),
+
+    path(
+        "admin/skills/",
+        AdminSkillListView.as_view(),
+        name="admin-skills"
+    ),
+
+    path(
+        "admin/skills/<int:pk>/approve/",
+        AdminSkillApproveView.as_view(),
+        name="admin-skill-approve"
+    ),
+
+    path(
+        "admin/skills/<int:pk>/deny/",
+        AdminSkillDenyView.as_view(),
+        name="admin-skill-deny"
     ),
 ]
