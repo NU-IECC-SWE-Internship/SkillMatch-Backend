@@ -233,10 +233,29 @@ def respond_to_request(request, pk):
             "receiver_skill",
         ),
         pk=pk,
-        receiver=request.user,
     )
 
     action = str(request.data.get("action", "")).strip().lower()
+
+    if request.user != match_req.sender and request.user != match_req.receiver:
+        return Response(
+            {"error": "You are not allowed to access this request."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if action in ("reject", "accept", "schedule_return"):
+        if request.user != match_req.receiver:
+            return Response(
+                {"error": "Only the request receiver can perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+    if action in ("confirm_return", "decline_return"):
+        if request.user != match_req.sender:
+            return Response(
+                {"error": "Only the original sender can perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     if action == "reject":
         if match_req.status != "PENDING":
@@ -467,7 +486,7 @@ def respond_to_request(request, pk):
         match_req.receiver_selected_slot = receiver_slot
         match_req.receiver_requested_start_time = receiver_start_time
         match_req.receiver_requested_end_time = receiver_end_time
-        match_req.status = "SCHEDULING"
+        match_req.status = "CONFIRMING"
 
         match_req.save(
             update_fields=[
@@ -480,39 +499,11 @@ def respond_to_request(request, pk):
             ]
         )
 
-        return_meeting, return_err = create_meeting_for_match_request(
-            match_req,
-            user_timezone=user_timezone,
-            session_type="RETURN_SKILL",
-        )
-
-        if return_err:
-            err_data, _ = return_err
-
-            return Response(
-                {
-                    "message": "The request was accepted, but the return session could not be scheduled.",
-                    "status": "SCHEDULING",
-                    "meeting_id": first_meeting.id,
-                    "receiver_skill": receiver_skill.id,
-                    "receiver_skill_name": receiver_skill.name,
-                    "return_meeting_error": err_data.get(
-                        "error",
-                        "Could not schedule return session.",
-                    ),
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        match_req.status = "ACCEPTED"
-        match_req.save(update_fields=["status"])
-
         return Response(
             {
-                "message": "Swap accepted and both sessions scheduled successfully.",
-                "status": "ACCEPTED",
+                "message": "Return session time proposed. Waiting for sender confirmation.",
+                "status": "CONFIRMING",
                 "meeting_id": first_meeting.id,
-                "return_meeting_id": return_meeting.id,
                 "receiver_skill": receiver_skill.id,
                 "receiver_skill_name": receiver_skill.name,
             },
@@ -598,14 +589,47 @@ def respond_to_request(request, pk):
         match_req.receiver_selected_slot = receiver_slot
         match_req.receiver_requested_start_time = receiver_start_time
         match_req.receiver_requested_end_time = receiver_end_time
+        match_req.status = "CONFIRMING"
 
         match_req.save(
             update_fields=[
                 "receiver_selected_slot",
                 "receiver_requested_start_time",
                 "receiver_requested_end_time",
+                "status",
             ]
         )
+
+        return Response(
+            {
+                "message": "Return session time proposed. Waiting for sender confirmation.",
+                "status": "CONFIRMING",
+                "receiver_skill": match_req.receiver_skill.id,
+                "receiver_skill_name": match_req.receiver_skill.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "confirm_return":
+        if match_req.status != "CONFIRMING":
+            return Response(
+                {
+                    "error": "This return session is not waiting for confirmation."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not match_req.receiver_skill:
+            return Response(
+                {"error": "No return skill was selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not match_req.receiver_selected_slot:
+            return Response(
+                {"error": "No return session time was proposed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         from meetings.views import create_meeting_for_match_request
 
@@ -629,11 +653,48 @@ def respond_to_request(request, pk):
 
         return Response(
             {
-                "message": "Return session scheduled successfully.",
+                "message": "Return session confirmed successfully.",
                 "status": "ACCEPTED",
                 "return_meeting_id": return_meeting.id,
                 "receiver_skill": match_req.receiver_skill.id,
                 "receiver_skill_name": match_req.receiver_skill.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "decline_return":
+        if match_req.status != "CONFIRMING":
+            return Response(
+                {
+                    "error": "This return session is not waiting for confirmation."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_req.receiver_selected_slot = None
+        match_req.receiver_requested_start_time = None
+        match_req.receiver_requested_end_time = None
+        match_req.status = "SCHEDULING"
+
+        match_req.save(
+            update_fields=[
+                "receiver_selected_slot",
+                "receiver_requested_start_time",
+                "receiver_requested_end_time",
+                "status",
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Return session declined. A new time can be selected.",
+                "status": "SCHEDULING",
+                "receiver_skill": match_req.receiver_skill.id
+                if match_req.receiver_skill
+                else None,
+                "receiver_skill_name": match_req.receiver_skill.name
+                if match_req.receiver_skill
+                else None,
             },
             status=status.HTTP_200_OK,
         )
