@@ -14,4 +14,5 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sender_id', 'sender_username', 'receiver_id',
             'receiver_username', 'content', 'created_at',
+            'is_read',
         ]

@@ -44,6 +44,8 @@ class MatchRequest(models.Model):
             ("PENDING", "Pending"),
             ("SCHEDULING", "Scheduling"),
             ("ACCEPTED", "Accepted"),
+            ("CONFIRMING", "Waiting for return confirmation"),
+
             ("REJECTED", "Rejected"),
         ],
         default="PENDING",
