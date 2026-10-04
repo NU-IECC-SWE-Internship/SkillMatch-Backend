@@ -266,3 +266,35 @@ class AvailabilitySlot(models.Model):
             f"{self.day} "
             f"{self.start_time} to {self.end_time}"
         )
+
+
+class Notification(models.Model):
+    NOTIFICATION_TYPES = [
+        ("match_request", "Match Request Received"),
+        ("match_accepted", "Match Request Accepted"),
+        ("match_rejected", "Match Request Rejected"),
+        ("meeting_cancelled", "Meeting Cancelled"),
+        ("general", "General"),
+    ]
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    title = models.CharField(max_length=255)
+    message = models.TextField(blank=True, default="")
+    notification_type = models.CharField(
+        max_length=30,
+        choices=NOTIFICATION_TYPES,
+        default="general",
+    )
+    link = models.CharField(max_length=255, blank=True, default="")
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notification({self.recipient.username}, '{self.title}', read={self.is_read})"

@@ -1,17 +1,11 @@
 import logging
-import threading
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
+from .tasks import send_rendered_email_task
+from .notifications import create_notification
 
 logger = logging.getLogger(__name__)
 
 
 def should_send_email_to(user) -> bool:
-    """
-    Check if a user is eligible and has opted in to receive email notifications.
-    """
     if not user or not getattr(user, 'email', None):
         return False
 
@@ -23,48 +17,36 @@ def should_send_email_to(user) -> bool:
 
 
 def _send_async_rendered_email(subject: str, template_name: str, context: dict, recipient_list: list):
-    """
-    Renders an HTML email with plain-text fallback and sends it asynchronously in a background thread.
-    """
     if not recipient_list:
         return
 
-    # Add global site_url if not explicitly provided
-    if 'site_url' not in context:
-        context['site_url'] = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-
-    def task():
-        try:
-            html_content = render_to_string(template_name, context)
-            text_content = strip_tags(html_content)
-
-            email_msg = EmailMultiAlternatives(
-                subject=subject,
-                body=text_content,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=recipient_list,
-            )
-            email_msg.attach_alternative(html_content, "text/html")
-            email_msg.send(fail_silently=False)
-            logger.info("Email '%s' successfully dispatched to %s", subject, recipient_list)
-        except Exception as e:
-            logger.error("Failed to send email '%s' to %s: %s", subject, recipient_list, str(e))
-            print(f"[SkillMatch Email Error] Could not send '{subject}' to {recipient_list}: {str(e)}")
-
-    thread = threading.Thread(target=task, daemon=True)
-    thread.start()
+    try:
+        send_rendered_email_task.delay(subject, template_name, context, recipient_list)
+    except Exception as exc:
+        logger.warning(
+            "Could not dispatch email '%s' via Celery (%s). Executing fallback in-process.",
+            subject,
+            exc,
+        )
+        send_rendered_email_task.apply(args=[subject, template_name, context, recipient_list], throw=False)
 
 
 def send_match_request_received_email(match_request):
-    """
-    Notifies the receiver that a new match request was submitted.
-    """
     receiver = match_request.receiver
-    if not should_send_email_to(receiver):
-        return
-
     sender = match_request.sender
     skill_name = match_request.skill.name if match_request.skill else "General Skill Exchange"
+
+    # Always create an in-app notification
+    create_notification(
+        recipient=receiver,
+        title=f"New match request from {sender.username}!",
+        message=f"{sender.username} sent you a request to practice {skill_name}.",
+        notification_type="match_request",
+        link="/requests",
+    )
+
+    if not should_send_email_to(receiver):
+        return
 
     requested_slot = ""
     if getattr(match_request, 'selected_slot', None):
@@ -75,8 +57,8 @@ def send_match_request_received_email(match_request):
         requested_slot = f"{day_str} ({start_str} - {end_str})"
 
     context = {
-        "receiver": receiver,
-        "sender": sender,
+        "receiver": {"username": receiver.username},
+        "sender": {"username": sender.username},
         "skill_name": skill_name,
         "requested_slot": requested_slot,
         "message": getattr(match_request, "message", "") or "",
@@ -91,25 +73,31 @@ def send_match_request_received_email(match_request):
 
 
 def send_match_request_accepted_email(match_request, meeting=None):
-    """
-    Notifies the sender that their request was accepted and a session was scheduled.
-    """
     sender = match_request.sender
-    if not should_send_email_to(sender):
-        return
-
     receiver = match_request.receiver
     skill_name = match_request.skill.name if match_request.skill else "General Skill Exchange"
+
+    # Always create an in-app notification
+    create_notification(
+        recipient=sender,
+        title=f"Match Request Accepted by {receiver.username}! 🎉",
+        message=f"{receiver.username} accepted your match request for {skill_name}.",
+        notification_type="match_accepted",
+        link="/meetings",
+    )
+
+    if not should_send_email_to(sender):
+        return
 
     scheduled_time = "Scheduled soon"
     if meeting and meeting.start_time:
         scheduled_time = meeting.start_time.strftime("%A, %B %d, %Y at %I:%M %p UTC")
 
     context = {
-        "sender": sender,
-        "receiver": receiver,
+        "sender": {"username": sender.username},
+        "receiver": {"username": receiver.username},
         "skill_name": skill_name,
-        "meeting": meeting,
+        "meeting": {"room_url": getattr(meeting, 'room_url', '')} if meeting else {},
         "scheduled_time": scheduled_time,
     }
 
@@ -122,19 +110,25 @@ def send_match_request_accepted_email(match_request, meeting=None):
 
 
 def send_match_request_rejected_email(match_request):
-    """
-    Notifies the sender that their match request was declined.
-    """
     sender = match_request.sender
-    if not should_send_email_to(sender):
-        return
-
     receiver = match_request.receiver
     skill_name = match_request.skill.name if match_request.skill else "General Skill Exchange"
 
+    # Always create an in-app notification
+    create_notification(
+        recipient=sender,
+        title=f"Match Request Update from {receiver.username}",
+        message=f"{receiver.username} was unable to accept your request for {skill_name}.",
+        notification_type="match_rejected",
+        link="/my-requests",
+    )
+
+    if not should_send_email_to(sender):
+        return
+
     context = {
-        "sender": sender,
-        "receiver": receiver,
+        "sender": {"username": sender.username},
+        "receiver": {"username": receiver.username},
         "skill_name": skill_name,
         "rejection_reason": match_request.rejection_reason or "",
     }
@@ -148,9 +142,6 @@ def send_match_request_rejected_email(match_request):
 
 
 def send_meeting_cancelled_email(meeting, cancelled_by):
-    """
-    Notifies the other participant when a scheduled meeting is cancelled.
-    """
     request_obj = getattr(meeting, 'request', None)
     if not request_obj:
         return
@@ -161,15 +152,25 @@ def send_meeting_cancelled_email(meeting, cancelled_by):
         else request_obj.sender
     )
 
+    skill_name = request_obj.skill.name if request_obj.skill else "Skill Session"
+
+    # Always create an in-app notification
+    create_notification(
+        recipient=recipient,
+        title=f"Meeting Cancelled: {skill_name} ⚠️",
+        message=f"Your session with {cancelled_by.username} was cancelled.",
+        notification_type="meeting_cancelled",
+        link="/meetings",
+    )
+
     if not should_send_email_to(recipient):
         return
 
-    skill_name = request_obj.skill.name if request_obj.skill else "Skill Session"
     scheduled_time = meeting.start_time.strftime("%A, %B %d, %Y at %I:%M %p UTC") if meeting.start_time else "Scheduled Session"
 
     context = {
-        "recipient": recipient,
-        "cancelled_by": cancelled_by,
+        "recipient": {"username": recipient.username},
+        "cancelled_by": {"username": cancelled_by.username},
         "skill_name": skill_name,
         "scheduled_time": scheduled_time,
     }

@@ -14,6 +14,7 @@ from .models import (
     AvailabilitySlot,
     SkillQuizAttempt,
     PendingSkillQuiz,
+    Notification,
 )
 
 from .serializers import (
@@ -26,6 +27,7 @@ from .serializers import (
     UserSerializer,
     QuizSubmitSerializer,
     AdminSkillSerializer,
+    NotificationSerializer,
 )
 from .quiz_llm import QuizGenerationError, generate_quiz_questions
 from .quiz_policy import START_GRACE, expire_abandoned_quiz, quiz_availability
@@ -617,3 +619,32 @@ class UserProfileView(APIView):
         serializer = ShowProfileSerializer(profile)
 
         return Response(serializer.data)
+
+
+class NotificationListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        notifications = Notification.objects.filter(recipient=request.user)[:30]
+        unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response({
+            "unread_count": unread_count,
+            "notifications": serializer.data,
+        })
+
+
+class NotificationMarkReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        Notification.objects.filter(id=pk, recipient=request.user).update(is_read=True)
+        return Response({"success": True})
+
+
+class NotificationMarkAllReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({"success": True})
