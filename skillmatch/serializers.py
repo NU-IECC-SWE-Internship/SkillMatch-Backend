@@ -6,6 +6,7 @@ from .models import (
     Skill,
     UserSkill,
     AvailabilitySlot,
+    SkillQuizQuestion,
 )
 
 
@@ -60,6 +61,7 @@ class AdminSkillSerializer(serializers.ModelSerializer):
         default=None,
     )
     user_count = serializers.IntegerField(read_only=True, default=0)
+    question_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Skill
@@ -71,7 +73,36 @@ class AdminSkillSerializer(serializers.ModelSerializer):
             "created_by_username",
             "created_at",
             "user_count",
+            "question_count",
         ]
+
+
+class AdminQuizQuestionSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = SkillQuizQuestion
+
+        fields = [
+            "id",
+            "cycle",
+            "question_text",
+            "option_a",
+            "option_b",
+            "option_c",
+            "option_d",
+            "correct_option",
+            "difficulty",
+            "created_at",
+        ]
+        read_only_fields = ["id", "cycle", "created_at"]
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        if "correct_option" in data:
+            data["correct_option"] = str(data["correct_option"]).strip().upper()
+        if "difficulty" in data:
+            data["difficulty"] = str(data["difficulty"]).strip().lower()
+        return super().to_internal_value(data)
 
 
 class UserSkillSerializer(serializers.ModelSerializer):

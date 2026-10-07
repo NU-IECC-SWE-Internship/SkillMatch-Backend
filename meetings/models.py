@@ -1,8 +1,8 @@
-from datetime import timedelta
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from matching.models import MatchRequest
+from system_config.services import get_hours
 
 class Meeting(models.Model):
     STATUS_CHOICES = [
@@ -31,7 +31,7 @@ class Meeting(models.Model):
 
     @property
     def review_deadline(self):
-        return self.end_time + timedelta(hours=48)
+        return self.end_time + get_hours("reviews.window_hours")
 
     def __str__(self):
         return f"Meeting #{self.id} ({self.status}): {self.request.sender.username} & {self.request.receiver.username}"

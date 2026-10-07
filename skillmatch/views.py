@@ -14,6 +14,7 @@ from .models import (
     AvailabilitySlot,
     SkillQuizAttempt,
     PendingSkillQuiz,
+    SkillQuizQuestion,
 )
 
 from .serializers import (
@@ -26,12 +27,18 @@ from .serializers import (
     UserSerializer,
     QuizSubmitSerializer,
     AdminSkillSerializer,
+    AdminQuizQuestionSerializer,
 )
-from .quiz_llm import QuizGenerationError, generate_quiz_questions
-from .quiz_policy import START_GRACE, expire_abandoned_quiz, quiz_availability
-
-PASS_SCORE = 7
-QUIZ_QUESTION_COUNT = 10
+from .quiz_bank import (
+    bank_size,
+    current_cycle,
+    draw_quiz,
+    split_by_difficulty,
+    top_up_skill,
+)
+from .quiz_llm import QuizGenerationError
+from .quiz_policy import expire_abandoned_quiz, quiz_availability, start_grace
+from system_config.services import get_config
 
 # Must stay in sync with the suggested skills in the frontend (Profile / onboarding).
 DEFAULT_SKILL_NAMES = {
@@ -211,12 +218,12 @@ class SkillQuizView(APIView):
             {
                 "skill_id": skill.id,
                 "skill_name": skill.name,
-                "pass_score": PASS_SCORE,
-                "question_count": QUIZ_QUESTION_COUNT,
+                "pass_score": get_config("quiz.pass_score"),
+                "question_count": get_config("quiz.question_count"),
                 "can_take": can_take,
                 "has_attempt": attempt is not None,
                 "available_at": available_at,
-                "cooldown_hours": 24,
+                "cooldown_hours": get_config("quiz.cooldown_hours"),
                 "attempt": attempt_payload(attempt),
                 "questions": [],
             }
@@ -224,7 +231,7 @@ class SkillQuizView(APIView):
 
 
 class SkillQuizStartView(APIView):
-    """Generate a fresh Groq quiz for this user+skill when they start."""
+    """Draw a random quiz from the skill's question bank when the user starts."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -257,13 +264,13 @@ class SkillQuizStartView(APIView):
         if (
             pending
             and pending.questions
-            and timezone.now() - pending.created_at < START_GRACE
+            and timezone.now() - pending.created_at < start_grace()
         ):
             return Response(
                 {
                     "skill_id": skill.id,
                     "skill_name": skill.name,
-                    "pass_score": PASS_SCORE,
+                    "pass_score": get_config("quiz.pass_score"),
                     "questions": pending.public_questions(),
                 }
             )
@@ -286,7 +293,8 @@ class SkillQuizStartView(APIView):
             return Response(
                 {
                     "error": (
-                        "Quiz cooldown active. You can try again after 24 hours."
+                        "Quiz cooldown active. You can try again after "
+                        f"{get_config('quiz.cooldown_hours')} hours."
                     ),
                     "available_at": available_at,
                     "last_score": attempt.score if attempt else None,
@@ -296,10 +304,7 @@ class SkillQuizStartView(APIView):
             )
 
         try:
-            generated = generate_quiz_questions(
-                skill.name,
-                count=QUIZ_QUESTION_COUNT,
-            )
+            generated = draw_quiz(skill, get_config("quiz.question_count"))
         except QuizGenerationError as exc:
             return Response(
                 {"error": str(exc)},
@@ -316,7 +321,7 @@ class SkillQuizStartView(APIView):
             {
                 "skill_id": skill.id,
                 "skill_name": skill.name,
-                "pass_score": PASS_SCORE,
+                "pass_score": get_config("quiz.pass_score"),
                 "questions": pending.public_questions(),
             },
             status=status.HTTP_201_CREATED,
@@ -354,7 +359,8 @@ class SkillQuizSubmitView(APIView):
             return Response(
                 {
                     "error": (
-                        "Quiz cooldown active. You can try again after 24 hours."
+                        "Quiz cooldown active. You can try again after "
+                        f"{get_config('quiz.cooldown_hours')} hours."
                     ),
                     "available_at": available_at,
                 },
@@ -399,7 +405,8 @@ class SkillQuizSubmitView(APIView):
             if answer_map.get(order) == q.get("correct_option"):
                 score += 1
 
-        passed = score >= PASS_SCORE
+        pass_score = get_config("quiz.pass_score")
+        passed = score >= pass_score
 
         SkillQuizAttempt.objects.create(
             user=request.user,
@@ -419,9 +426,9 @@ class SkillQuizSubmitView(APIView):
                 "total": len(questions),
                 "passed": passed,
                 "is_verified": user_skill.is_verified,
-                "pass_score": PASS_SCORE,
+                "pass_score": pass_score,
                 "can_retry": not passed,
-                "cooldown_hours": 24,
+                "cooldown_hours": get_config("quiz.cooldown_hours"),
             }
         )
 
@@ -546,7 +553,14 @@ def admin_skill_queryset():
     return (
         Skill.objects
         .select_related("created_by")
-        .annotate(user_count=Count("users__user", distinct=True))
+        .annotate(
+            user_count=Count("users__user", distinct=True),
+            question_count=Count(
+                "quiz_questions",
+                filter=Q(quiz_questions__cycle=current_cycle()),
+                distinct=True,
+            ),
+        )
     )
 
 
@@ -598,6 +612,76 @@ class AdminSkillDenyView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response({"id": pk, "status": "denied"})
+
+
+# =========================================================
+# ADMIN — QUESTION BANK
+# =========================================================
+
+def question_bank_payload(skill):
+    questions = SkillQuizQuestion.objects.filter(skill=skill).order_by("-cycle", "-id")
+    current = questions.filter(cycle=current_cycle())
+    difficulty_counts = {level: 0 for level in SkillQuizQuestion.DIFFICULTY_ORDER}
+    for row in current.values("difficulty").annotate(total=Count("id")):
+        difficulty_counts[row["difficulty"]] = row["total"]
+    return {
+        "skill_id": skill.id,
+        "skill_name": skill.name,
+        "cycle": current_cycle(),
+        "bank_size": bank_size(),
+        "current_count": current.count(),
+        "difficulty_counts": difficulty_counts,
+        "difficulty_targets": split_by_difficulty(bank_size()),
+        "questions": AdminQuizQuestionSerializer(questions, many=True).data,
+    }
+
+
+class AdminSkillQuestionListCreateView(APIView):
+    """GET a skill's question bank; POST adds a question to the current cycle."""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, skill_id):
+        skill = get_object_or_404(Skill, pk=skill_id)
+        return Response(question_bank_payload(skill))
+
+    def post(self, request, skill_id):
+        skill = get_object_or_404(Skill, pk=skill_id)
+        cycle = current_cycle()
+        size = bank_size()
+        if SkillQuizQuestion.objects.filter(skill=skill, cycle=cycle).count() >= size:
+            return Response(
+                {"error": f"This month's bank is full ({size} questions). Delete one first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = AdminQuizQuestionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(skill=skill, cycle=cycle)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminQuizQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = SkillQuizQuestion.objects.all()
+    serializer_class = AdminQuizQuestionSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+
+class AdminSkillQuestionGenerateView(APIView):
+    """Generate one batch now with Groq (ignores the once-a-day limit)."""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, skill_id):
+        skill = get_object_or_404(Skill, pk=skill_id)
+        try:
+            added = top_up_skill(skill, force=True)
+        except QuizGenerationError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"added": added, **question_bank_payload(skill)})
 
 
 class UserProfileView(APIView):

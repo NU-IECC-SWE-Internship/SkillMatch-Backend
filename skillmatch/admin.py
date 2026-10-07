@@ -9,6 +9,7 @@ from .models import (
     PendingSkillQuiz,
     AvailabilitySlot,
 )
+from .quiz_bank import current_cycle
 
 
 @admin.register(Skill)
@@ -20,9 +21,13 @@ class SkillAdmin(admin.ModelAdmin):
 
 @admin.register(SkillQuizQuestion)
 class SkillQuizQuestionAdmin(admin.ModelAdmin):
-    list_display = ["skill", "order", "question_text", "correct_option"]
-    list_filter = ["skill"]
-    ordering = ["skill__name", "order"]
+    list_display = ["skill", "cycle", "difficulty", "question_text", "correct_option", "created_at"]
+    list_filter = ["cycle", "difficulty", "skill"]
+    search_fields = ["question_text"]
+    ordering = ["skill__name", "-cycle", "id"]
+
+    def get_changeform_initial_data(self, request):
+        return {"cycle": current_cycle(), **super().get_changeform_initial_data(request)}
 
 
 @admin.register(SkillQuizAttempt)

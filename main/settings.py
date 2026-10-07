@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'skillmatch',
     'matching',
     'meetings',
+    'system_config',
 ]
 
 

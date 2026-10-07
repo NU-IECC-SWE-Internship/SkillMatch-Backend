@@ -1,12 +1,17 @@
-from datetime import timedelta
-
 from django.utils import timezone
+
+from system_config.services import get_hours, get_seconds
 
 from .models import PendingSkillQuiz, SkillQuizAttempt
 
-QUIZ_COOLDOWN = timedelta(hours=24)
-# Protects against double-clicks / React StrictMode re-sending Start.
-START_GRACE = timedelta(seconds=10)
+
+def quiz_cooldown():
+    return get_hours("quiz.cooldown_hours")
+
+
+def start_grace():
+    # Protects against double-clicks / React StrictMode re-sending Start.
+    return get_seconds("quiz.start_grace_seconds")
 
 
 def expire_abandoned_quiz(user, skill):
@@ -43,7 +48,7 @@ def quiz_availability(user, skill, *, is_verified: bool = False):
     """
     Returns (can_take, latest_attempt, available_at).
     Verified skills don't need another quiz.
-    After any attempt, wait QUIZ_COOLDOWN before retrying.
+    After any attempt, wait the configured cooldown before retrying.
     """
     attempt = latest_quiz_attempt(user, skill)
 
@@ -53,7 +58,7 @@ def quiz_availability(user, skill, *, is_verified: bool = False):
     if attempt is None:
         return True, None, None
 
-    available_at = attempt.created_at + QUIZ_COOLDOWN
+    available_at = attempt.created_at + quiz_cooldown()
     if timezone.now() >= available_at:
         return True, attempt, available_at
 
