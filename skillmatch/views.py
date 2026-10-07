@@ -639,6 +639,22 @@ class NotificationMarkReadView(APIView):
 
     def post(self, request, pk):
         Notification.objects.filter(id=pk, recipient=request.user).update(is_read=True)
+        unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"notifications_user_{request.user.id}",
+                    {
+                        "type": "notification_read",
+                        "id": int(pk),
+                        "unread_count": unread_count,
+                    },
+                )
+        except Exception:
+            pass
         return Response({"success": True})
 
 
@@ -647,4 +663,19 @@ class NotificationMarkAllReadView(APIView):
 
     def post(self, request):
         Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"notifications_user_{request.user.id}",
+                    {
+                        "type": "notification_all_read",
+                        "unread_count": 0,
+                    },
+                )
+        except Exception:
+            pass
         return Response({"success": True})
+

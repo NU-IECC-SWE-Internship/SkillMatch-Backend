@@ -1,4 +1,5 @@
 import logging
+import threading
 from .tasks import send_rendered_email_task
 from .notifications import create_notification
 
@@ -16,19 +17,32 @@ def should_send_email_to(user) -> bool:
     return True
 
 
-def _send_async_rendered_email(subject: str, template_name: str, context: dict, recipient_list: list):
-    if not recipient_list:
-        return
-
+def _dispatch_email(subject: str, template_name: str, context: dict, recipient_list: list):
     try:
         send_rendered_email_task.delay(subject, template_name, context, recipient_list)
     except Exception as exc:
         logger.warning(
-            "Could not dispatch email '%s' via Celery (%s). Executing fallback in-process.",
+            "Could not dispatch email '%s' via Celery (%s). Executing fallback in background thread.",
             subject,
             exc,
         )
-        send_rendered_email_task.apply(args=[subject, template_name, context, recipient_list], throw=False)
+        try:
+            send_rendered_email_task.apply(args=[subject, template_name, context, recipient_list], throw=False)
+        except Exception as fallback_exc:
+            logger.error("Failed to execute email fallback: %s", fallback_exc)
+
+
+def _send_async_rendered_email(subject: str, template_name: str, context: dict, recipient_list: list):
+    if not recipient_list:
+        return
+
+    # Dispatch in a daemon thread so the HTTP request returns immediately without hanging
+    thread = threading.Thread(
+        target=_dispatch_email,
+        args=(subject, template_name, context, recipient_list),
+        daemon=True,
+    )
+    thread.start()
 
 
 def send_match_request_received_email(match_request):
