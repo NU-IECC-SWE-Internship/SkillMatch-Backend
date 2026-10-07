@@ -10,13 +10,18 @@ from .views import (
     SkillQuizView,
     SkillQuizStartView,
     SkillQuizSubmitView,
+    SkillQuizReviewView,
     UserAvailabilityView,
     UserSessionSettingsView,
     UserProfileView,
     AdminSkillListView,
     AdminSkillApproveView,
     AdminSkillDenyView,
+    AdminSkillQuestionListCreateView,
+    AdminSkillQuestionGenerateView,
+    AdminQuizQuestionDetailView,
 )
+from .admin_views import AdminOverviewView, AdminUserDetailView, AdminUserListView
 
 
 urlpatterns = [
@@ -41,6 +46,11 @@ urlpatterns = [
         "skills/<int:skill_id>/quiz/submit/",
         SkillQuizSubmitView.as_view(),
         name="skill-quiz-submit",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/review/",
+        SkillQuizReviewView.as_view(),
+        name="skill-quiz-review",
     ),
 
     path(
@@ -107,5 +117,41 @@ urlpatterns = [
         "admin/skills/<int:pk>/deny/",
         AdminSkillDenyView.as_view(),
         name="admin-skill-deny"
+    ),
+
+    path(
+        "admin/skills/<int:skill_id>/questions/",
+        AdminSkillQuestionListCreateView.as_view(),
+        name="admin-skill-questions"
+    ),
+
+    path(
+        "admin/skills/<int:skill_id>/questions/generate/",
+        AdminSkillQuestionGenerateView.as_view(),
+        name="admin-skill-questions-generate"
+    ),
+
+    path(
+        "admin/questions/<int:pk>/",
+        AdminQuizQuestionDetailView.as_view(),
+        name="admin-question-detail"
+    ),
+
+    path(
+        "admin/overview/",
+        AdminOverviewView.as_view(),
+        name="admin-overview"
+    ),
+
+    path(
+        "admin/users/",
+        AdminUserListView.as_view(),
+        name="admin-users"
+    ),
+
+    path(
+        "admin/users/<int:pk>/",
+        AdminUserDetailView.as_view(),
+        name="admin-user-detail"
     ),
 ]

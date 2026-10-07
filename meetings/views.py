@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from matching.models import MatchRequest
+from system_config.services import get_hours
 from .models import Meeting, MeetingRating
 from .serializers import MeetingSerializer, MeetingRatingSerializer
 from .video_service import DailyVideoService
@@ -35,7 +36,7 @@ def recalculate_user_rating(user):
 
 def process_expired_ratings():
     now = timezone.now()
-    cutoff = now - timedelta(hours=48)
+    cutoff = now - get_hours("reviews.window_hours")
     affected_user_ids = set()
 
     unrevealed_meetings = Meeting.objects.filter(ratings__is_revealed=False).distinct()
