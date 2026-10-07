@@ -16,52 +16,101 @@ from .video_service import DailyVideoService
 
 
 def recalculate_user_rating(user):
-    if not user or not hasattr(user, 'profile'):
+    if not user:
         return
+    user_id = user.id if hasattr(user, 'id') else user
     stats = MeetingRating.objects.filter(
-        reviewed_user=user,
+        reviewed_user_id=user_id,
         is_revealed=True
     ).aggregate(
         avg_score=Avg('score'),
         total_reviews=Count('id')
     )
 
-    profile = user.profile
+    from skillmatch.models import Profile
+    profile, _ = Profile.objects.get_or_create(user_id=user_id)
     profile.rating_average = round(stats['avg_score'] or 0.0, 2)
     profile.rating_count = stats['total_reviews'] or 0
     profile.save(update_fields=['rating_average', 'rating_count'])
 
 
 def process_expired_ratings():
-    cutoff = timezone.now() - get_hours("reviews.window_hours")
-    expired_unrevealed = MeetingRating.objects.filter(
-        is_revealed=False,
-        meeting__end_time__lte=cutoff
-    ).select_related('reviewed_user__profile')
+    now = timezone.now()
+    cutoff = now - get_hours("reviews.window_hours")
+    affected_user_ids = set()
 
-    if expired_unrevealed.exists():
-        affected_users = set()
-        now = timezone.now()
-        with transaction.atomic():
-            for r in expired_unrevealed:
-                r.is_revealed = True
-                r.revealed_at = now
-                r.save(update_fields=['is_revealed', 'revealed_at'])
-                affected_users.add(r.reviewed_user)
+    unrevealed_meetings = Meeting.objects.filter(ratings__is_revealed=False).distinct()
+    for m in unrevealed_meetings:
+        ratings = list(MeetingRating.objects.filter(meeting_id=m.id))
+        if len(ratings) >= 2 or (m.end_time and m.end_time <= cutoff):
+            with transaction.atomic():
+                MeetingRating.objects.filter(meeting_id=m.id).update(
+                    is_revealed=True,
+                    revealed_at=now
+                )
+                for r in ratings:
+                    affected_user_ids.add(r.reviewed_user_id)
 
-            for u in affected_users:
-                recalculate_user_rating(u)
+    for uid in affected_user_ids:
+        recalculate_user_rating(uid)
 
+def create_meeting_for_match_request(
+    match_request,
+    user_timezone=None,
+    session_type="REQUESTED_SKILL",
+):
+    if session_type not in ("REQUESTED_SKILL", "RETURN_SKILL"):
+        return None, (
+            {"error": "Invalid meeting session type."},
+            status.HTTP_400_BAD_REQUEST,
+        )
 
-def create_meeting_for_match_request(match_request, user_timezone=None):
-    if hasattr(match_request, 'meeting'):
-        return match_request.meeting, None
+    existing_meeting = Meeting.objects.filter(
+        request=match_request,
+        session_type=session_type,
+    ).first()
 
-    slot = getattr(match_request, 'selected_slot', None)
+    if existing_meeting:
+        return existing_meeting, None
+
+    if session_type == "REQUESTED_SKILL":
+        slot = getattr(match_request, "selected_slot", None)
+        requested_start_time = match_request.requested_start_time
+        requested_end_time = match_request.requested_end_time
+    else:
+        if not match_request.receiver_skill:
+            return None, (
+                {"error": "No return skill was selected for this swap."},
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        slot = getattr(match_request, "receiver_selected_slot", None)
+        requested_start_time = match_request.receiver_requested_start_time
+        requested_end_time = match_request.receiver_requested_end_time
+
     if not slot:
-        return None, ({"error": "The match request does not have an availability slot attached."}, status.HTTP_400_BAD_REQUEST)
+        return None, (
+            {"error": "The required availability slot has not been selected yet."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    start_clock = requested_start_time or slot.start_time
+    end_clock = requested_end_time or slot.end_time
+
+    if start_clock >= end_clock:
+        return None, (
+            {"error": "The meeting end time must be after the start time."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    if start_clock < slot.start_time or end_clock > slot.end_time:
+        return None, (
+            {"error": "The selected meeting time must be inside the availability slot."},
+            status.HTTP_400_BAD_REQUEST,
+        )
 
     tz_str = user_timezone or "UTC"
+
     try:
         user_tz = zoneinfo.ZoneInfo(tz_str)
     except Exception:
@@ -70,15 +119,35 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
     now_user = timezone.now().astimezone(user_tz)
 
     day_map = {
-        "monday": 0, "tuesday": 1, "wednesday": 2,
-        "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
     }
-    target_weekday = day_map.get(str(slot.day).lower(), 0)
+
+    target_weekday = day_map.get(str(slot.day).lower())
+
+    if target_weekday is None:
+        return None, (
+            {"error": "Invalid availability day."},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
     days_ahead = (target_weekday - now_user.weekday() + 7) % 7
     target_date = now_user.date() + timedelta(days=days_ahead)
 
-    user_start = datetime.combine(target_date, slot.start_time).replace(tzinfo=user_tz)
-    user_end = datetime.combine(target_date, slot.end_time).replace(tzinfo=user_tz)
+    user_start = datetime.combine(
+        target_date,
+        start_clock,
+    ).replace(tzinfo=user_tz)
+
+    user_end = datetime.combine(
+        target_date,
+        end_clock,
+    ).replace(tzinfo=user_tz)
 
     if user_start <= now_user:
         user_start += timedelta(days=7)
@@ -89,36 +158,53 @@ def create_meeting_for_match_request(match_request, user_timezone=None):
 
     start_ts = int(start_time_utc.timestamp())
     end_ts = int(end_time_utc.timestamp())
+
     service = DailyVideoService()
 
     try:
-        room_data = service.create_scheduled_room(start_ts, end_ts)
+        room_data = service.create_scheduled_room(
+            start_ts,
+            end_ts,
+        )
+
         token_sender = service.create_scheduled_token(
-            room_data['name'], match_request.sender.username, start_ts, end_ts
+            room_data["name"],
+            match_request.sender.username,
+            start_ts,
+            end_ts,
         )
+
         token_receiver = service.create_scheduled_token(
-            room_data['name'], match_request.receiver.username, start_ts, end_ts
+            room_data["name"],
+            match_request.receiver.username,
+            start_ts,
+            end_ts,
         )
+
     except Exception as e:
-        return None, ({"error": f"Video service error: {str(e)}"}, status.HTTP_503_SERVICE_UNAVAILABLE)
+        return None, (
+            {"error": f"Video service error: {str(e)}"},
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     try:
         meeting = Meeting.objects.create(
             request=match_request,
+            session_type=session_type,
             start_time=start_time_utc,
             end_time=end_time_utc,
             status="SCHEDULED",
-            room_url=room_data.get('url') or "",
-            room_name=room_data.get('name') or "",
+            room_url=room_data.get("url") or "",
+            room_name=room_data.get("name") or "",
             token_sender=token_sender,
             token_receiver=token_receiver,
         )
-    except Exception as e:
-        return None, ({"error": f"Could not save meeting: {str(e)}"}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    match_request.status = "ACCEPTED"
-    match_request.rejection_reason = None
-    match_request.save(update_fields=['status', 'rejection_reason'])
+    except Exception as e:
+        return None, (
+            {"error": f"Could not save meeting: {str(e)}"},
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return meeting, None
 
@@ -191,6 +277,29 @@ class SingleMeetingDetailView(APIView):
 
         if request.user not in (meeting.request.sender, meeting.request.receiver):
             return Response({"error": "You do not have permission to access this meeting."}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        try:
+            meeting = Meeting.objects.select_related(
+                'request__sender', 'request__receiver', 'request__skill'
+            ).prefetch_related('ratings').get(pk=pk)
+        except Meeting.DoesNotExist:
+            return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user not in (meeting.request.sender, meeting.request.receiver):
+            return Response({"error": "You do not have permission to modify this meeting."}, status=status.HTTP_403_FORBIDDEN)
+
+        new_status = request.data.get('status')
+        if new_status:
+            new_status = new_status.upper()
+            if new_status not in dict(Meeting.STATUS_CHOICES):
+                return Response({"error": f"Invalid status '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+            if meeting.status == "CANCELLED":
+                return Response({"error": "Cannot change status of a cancelled meeting."}, status=status.HTTP_400_BAD_REQUEST)
+            meeting.status = new_status
+            meeting.save(update_fields=['status'])
 
         return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
 
@@ -267,9 +376,11 @@ class MeetingReviewsView(APIView):
 
         # Check reveal status
         meeting.refresh_from_db()
+        if hasattr(meeting, '_prefetched_objects_cache'):
+            meeting._prefetched_objects_cache.clear()
         if hasattr(meeting, '_cached_ratings'):
             delattr(meeting, '_cached_ratings')
-        both_revealed = meeting.ratings.filter(is_revealed=True).exists()
+        both_revealed = MeetingRating.objects.filter(meeting_id=meeting.id, is_revealed=True).exists()
 
         return Response({
             "message": "Both reviews submitted! Feedback is now revealed." if both_revealed else "Review submitted successfully and kept private until mutual review or 48 hours.",

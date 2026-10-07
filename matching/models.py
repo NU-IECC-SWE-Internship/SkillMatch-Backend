@@ -42,7 +42,10 @@ class MatchRequest(models.Model):
         max_length=10,
         choices=[
             ("PENDING", "Pending"),
+            ("SCHEDULING", "Scheduling"),
             ("ACCEPTED", "Accepted"),
+            ("CONFIRMING", "Waiting for return confirmation"),
+
             ("REJECTED", "Rejected"),
         ],
         default="PENDING",
@@ -50,12 +53,31 @@ class MatchRequest(models.Model):
 
     rejection_reason = models.TextField(
         blank=True,
-        null=True
+        null=True,
     )
+
     receiver_skill = models.ForeignKey(
         Skill,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name="received_match_requests"
+        related_name="received_match_requests",
+    )
+
+    receiver_selected_slot = models.ForeignKey(
+        AvailabilitySlot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receiver_selected_match_requests",
+    )
+
+    receiver_requested_start_time = models.TimeField(
+        null=True,
+        blank=True,
+    )
+
+    receiver_requested_end_time = models.TimeField(
+        null=True,
+        blank=True,
     )

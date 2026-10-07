@@ -4,7 +4,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from skillmatch.models import Skill, UserSkill
+from django.utils.dateparse import parse_time
+from skillmatch.models import Skill, UserSkill, AvailabilitySlot
 from .models import MatchRequest
 from .serializers import MatchRequestSerializer, MatchSerializer
 
@@ -219,56 +220,57 @@ def get_requests(request):
 # =========================================================
 # ACCEPT / REJECT REQUEST
 # =========================================================
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def respond_to_request(request, pk):
-
     match_req = get_object_or_404(
         MatchRequest.objects.select_related(
             "sender",
             "receiver",
             "selected_slot",
+            "receiver_selected_slot",
             "skill",
+            "receiver_skill",
         ),
         pk=pk,
-        receiver=request.user,
     )
 
-    # Prevent handling the same request more than once
-    if match_req.status != "PENDING":
+    action = str(request.data.get("action", "")).strip().lower()
+
+    if request.user != match_req.sender and request.user != match_req.receiver:
         return Response(
-            {
-                "error": "This request has already been processed."
-            },
-            status=status.HTTP_400_BAD_REQUEST,
+            {"error": "You are not allowed to access this request."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
-    action = str(
-        request.data.get(
-            "action",
-            ""
-        )
-    ).strip().lower()
+    if action in ("reject", "accept", "schedule_return"):
+        if request.user != match_req.receiver:
+            return Response(
+                {"error": "Only the request receiver can perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-    # =====================================================
-    # REJECT
-    # =====================================================
+    if action in ("confirm_return", "decline_return"):
+        if request.user != match_req.sender:
+            return Response(
+                {"error": "Only the original sender can perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     if action == "reject":
+        if match_req.status != "PENDING":
+            return Response(
+                {"error": "This request has already been processed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         rejection_reason = str(
-            request.data.get(
-                "rejection_reason",
-                ""
-            )
+            request.data.get("rejection_reason", "")
         ).strip()
 
         if not rejection_reason:
             return Response(
-                {
-                    "error": "A rejection reason is required."
-                },
+                {"error": "A rejection reason is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -291,71 +293,414 @@ def respond_to_request(request, pk):
             status=status.HTTP_200_OK,
         )
 
-    # =====================================================
-    # ACCEPT
-    # =====================================================
-
     if action == "accept":
-        receiver_skill_id = request.data.get("receiver_skill") if request.data else None
+        if match_req.status != "PENDING":
+            return Response(
+                {"error": "This request has already been processed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if receiver_skill_id is not None:
+        receiver_skill_id = request.data.get("receiver_skill")
+
+        schedule_mode = str(
+            request.data.get("schedule_mode", "later")
+        ).strip().lower()
+
+        receiver_skill = None
+
+        if receiver_skill_id not in (None, ""):
             try:
-                receiver_skill = Skill.objects.get(pk=receiver_skill_id, is_approved=True)
-            except Skill.DoesNotExist:
+                receiver_skill = Skill.objects.get(
+                    pk=receiver_skill_id,
+                    is_approved=True,
+                )
+            except (Skill.DoesNotExist, ValueError, TypeError):
                 return Response(
                     {"error": "Selected skill is invalid."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        else:
-            receiver_skill = None
+
+            sender_teaches_skill = UserSkill.objects.filter(
+                user=match_req.sender,
+                skill=receiver_skill,
+                skill_type="teach",
+            ).exists()
+
+            if not sender_teaches_skill:
+                return Response(
+                    {
+                        "error": "The requester does not teach the selected return skill."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            receiver_wants_skill = UserSkill.objects.filter(
+                user=match_req.receiver,
+                skill=receiver_skill,
+                skill_type="learn",
+            ).exists()
+
+            if not receiver_wants_skill:
+                return Response(
+                    {
+                        "error": "The selected return skill is not in your learning list."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if receiver_skill and schedule_mode not in ("now", "later"):
+            return Response(
+                {"error": "Schedule mode must be now or later."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        receiver_slot = None
+        receiver_start_time = None
+        receiver_end_time = None
+
+        if receiver_skill and schedule_mode == "now":
+            receiver_slot_id = request.data.get(
+                "receiver_selected_slot"
+            )
+
+            if not receiver_slot_id:
+                return Response(
+                    {"error": "Please select an available time slot."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                receiver_slot = AvailabilitySlot.objects.get(
+                    pk=receiver_slot_id,
+                    user=match_req.sender,
+                )
+            except (
+                AvailabilitySlot.DoesNotExist,
+                ValueError,
+                TypeError,
+            ):
+                return Response(
+                    {
+                        "error": "The selected slot does not belong to the requester."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            start_value = request.data.get(
+                "receiver_requested_start_time"
+            )
+
+            end_value = request.data.get(
+                "receiver_requested_end_time"
+            )
+
+            if bool(start_value) != bool(end_value):
+                return Response(
+                    {
+                        "error": "Both start time and end time must be provided."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if start_value and end_value:
+                receiver_start_time = parse_time(
+                    str(start_value)
+                )
+
+                receiver_end_time = parse_time(
+                    str(end_value)
+                )
+
+                if not receiver_start_time or not receiver_end_time:
+                    return Response(
+                        {"error": "Invalid meeting time."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
         from meetings.views import create_meeting_for_match_request
 
-        user_timezone = (
-            request.data.get("timezone")
-            if request.data
-            else None
-        )
+        user_timezone = request.data.get("timezone")
 
-        meeting, err = create_meeting_for_match_request(
+        first_meeting, err = create_meeting_for_match_request(
             match_req,
             user_timezone=user_timezone,
+            session_type="REQUESTED_SKILL",
         )
 
         if err:
             err_data, err_status = err
             return Response(
                 err_data,
-                status=err_status
+                status=err_status,
             )
 
         match_req.receiver_skill = receiver_skill
-        match_req.status = "ACCEPTED"
         match_req.rejection_reason = None
+
+        if receiver_skill is None:
+            match_req.status = "ACCEPTED"
+
+            match_req.save(
+                update_fields=[
+                    "receiver_skill",
+                    "status",
+                    "rejection_reason",
+                ]
+            )
+
+            return Response(
+                {
+                    "message": "Request accepted successfully.",
+                    "status": "ACCEPTED",
+                    "meeting_id": first_meeting.id,
+                    "room_url": first_meeting.room_url,
+                    "receiver_skill": None,
+                    "receiver_skill_name": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if schedule_mode == "later":
+            match_req.status = "SCHEDULING"
+
+            match_req.save(
+                update_fields=[
+                    "receiver_skill",
+                    "status",
+                    "rejection_reason",
+                ]
+            )
+
+            return Response(
+                {
+                    "message": "Request accepted. Choose a time for your return session later.",
+                    "status": "SCHEDULING",
+                    "meeting_id": first_meeting.id,
+                    "room_url": first_meeting.room_url,
+                    "receiver_skill": receiver_skill.id,
+                    "receiver_skill_name": receiver_skill.name,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        match_req.receiver_selected_slot = receiver_slot
+        match_req.receiver_requested_start_time = receiver_start_time
+        match_req.receiver_requested_end_time = receiver_end_time
+        match_req.status = "CONFIRMING"
+
         match_req.save(
             update_fields=[
+                "receiver_skill",
+                "receiver_selected_slot",
+                "receiver_requested_start_time",
+                "receiver_requested_end_time",
                 "status",
                 "rejection_reason",
-                "receiver_skill",
             ]
         )
 
         return Response(
             {
-                "message": "Request accepted and meeting scheduled successfully.",
+                "message": "Return session time proposed. Waiting for sender confirmation.",
+                "status": "CONFIRMING",
+                "meeting_id": first_meeting.id,
+                "receiver_skill": receiver_skill.id,
+                "receiver_skill_name": receiver_skill.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "schedule_return":
+        if match_req.status != "SCHEDULING":
+            return Response(
+                {
+                    "error": "This request is not waiting for return-session scheduling."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not match_req.receiver_skill:
+            return Response(
+                {"error": "No return skill was selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        receiver_slot_id = request.data.get(
+            "receiver_selected_slot"
+        )
+
+        if not receiver_slot_id:
+            return Response(
+                {"error": "Please select an available time slot."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            receiver_slot = AvailabilitySlot.objects.get(
+                pk=receiver_slot_id,
+                user=match_req.sender,
+            )
+        except (
+            AvailabilitySlot.DoesNotExist,
+            ValueError,
+            TypeError,
+        ):
+            return Response(
+                {
+                    "error": "The selected slot does not belong to the requester."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_value = request.data.get(
+            "receiver_requested_start_time"
+        )
+
+        end_value = request.data.get(
+            "receiver_requested_end_time"
+        )
+
+        if bool(start_value) != bool(end_value):
+            return Response(
+                {
+                    "error": "Both start time and end time must be provided."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        receiver_start_time = None
+        receiver_end_time = None
+
+        if start_value and end_value:
+            receiver_start_time = parse_time(
+                str(start_value)
+            )
+
+            receiver_end_time = parse_time(
+                str(end_value)
+            )
+
+            if not receiver_start_time or not receiver_end_time:
+                return Response(
+                    {"error": "Invalid meeting time."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        match_req.receiver_selected_slot = receiver_slot
+        match_req.receiver_requested_start_time = receiver_start_time
+        match_req.receiver_requested_end_time = receiver_end_time
+        match_req.status = "CONFIRMING"
+
+        match_req.save(
+            update_fields=[
+                "receiver_selected_slot",
+                "receiver_requested_start_time",
+                "receiver_requested_end_time",
+                "status",
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Return session time proposed. Waiting for sender confirmation.",
+                "status": "CONFIRMING",
+                "receiver_skill": match_req.receiver_skill.id,
+                "receiver_skill_name": match_req.receiver_skill.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "confirm_return":
+        if match_req.status != "CONFIRMING":
+            return Response(
+                {
+                    "error": "This return session is not waiting for confirmation."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not match_req.receiver_skill:
+            return Response(
+                {"error": "No return skill was selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not match_req.receiver_selected_slot:
+            return Response(
+                {"error": "No return session time was proposed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from meetings.views import create_meeting_for_match_request
+
+        user_timezone = request.data.get("timezone")
+
+        return_meeting, err = create_meeting_for_match_request(
+            match_req,
+            user_timezone=user_timezone,
+            session_type="RETURN_SKILL",
+        )
+
+        if err:
+            err_data, err_status = err
+            return Response(
+                err_data,
+                status=err_status,
+            )
+
+        match_req.status = "ACCEPTED"
+        match_req.save(update_fields=["status"])
+
+        return Response(
+            {
+                "message": "Return session confirmed successfully.",
                 "status": "ACCEPTED",
-                "meeting_id": meeting.id,
-                "room_url": meeting.room_url,
-                "receiver_skill": receiver_skill.id if receiver_skill else None,
-                "receiver_skill_name": receiver_skill.name if receiver_skill else None,
+                "return_meeting_id": return_meeting.id,
+                "receiver_skill": match_req.receiver_skill.id,
+                "receiver_skill_name": match_req.receiver_skill.name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if action == "decline_return":
+        if match_req.status != "CONFIRMING":
+            return Response(
+                {
+                    "error": "This return session is not waiting for confirmation."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_req.receiver_selected_slot = None
+        match_req.receiver_requested_start_time = None
+        match_req.receiver_requested_end_time = None
+        match_req.status = "SCHEDULING"
+
+        match_req.save(
+            update_fields=[
+                "receiver_selected_slot",
+                "receiver_requested_start_time",
+                "receiver_requested_end_time",
+                "status",
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Return session declined. A new time can be selected.",
+                "status": "SCHEDULING",
+                "receiver_skill": match_req.receiver_skill.id
+                if match_req.receiver_skill
+                else None,
+                "receiver_skill_name": match_req.receiver_skill.name
+                if match_req.receiver_skill
+                else None,
             },
             status=status.HTTP_200_OK,
         )
 
     return Response(
-        {
-            "error": "Invalid action."
-        },
+        {"error": "Invalid action."},
         status=status.HTTP_400_BAD_REQUEST,
     )
 
@@ -421,7 +766,7 @@ def get_teachers(request):
     teaching_skills = approved_user_skills().filter(
         skill_type="teach",
         skill_id__in=learning_skill_ids
-    ).select_related("user", "skill")
+    ).select_related("user__profile", "skill")
 
     if skill_id:
         teaching_skills = teaching_skills.filter(
@@ -437,9 +782,12 @@ def get_teachers(request):
             continue
 
         if teacher.id not in teachers:
+            profile = getattr(teacher, "profile", None)
             teachers[teacher.id] = {
                 "user_id": teacher.id,
                 "username": teacher.username,
+                "rating_average": profile.rating_average if profile else 0.0,
+                "rating_count": profile.rating_count if profile else 0,
                 "skills": []
             }
 

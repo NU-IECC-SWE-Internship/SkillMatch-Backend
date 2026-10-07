@@ -37,6 +37,8 @@ ALLOWED_HOSTS = ['*']
 # --------------------------------------------------
 
 INSTALLED_APPS = [
+    'daphne',
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -50,6 +52,7 @@ INSTALLED_APPS = [
     'matching',
     'meetings',
     'system_config',
+    'chating',
 ]
 
 
@@ -144,6 +147,14 @@ TEMPLATES = [
 # --------------------------------------------------
 
 WSGI_APPLICATION = 'main.wsgi.application'
+ASGI_APPLICATION = 'main.asgi.application'
+
+# A simple in-memory layer is enough for a single-process local deployment.
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 
 # --------------------------------------------------
