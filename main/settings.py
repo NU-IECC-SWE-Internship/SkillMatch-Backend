@@ -114,6 +114,11 @@ REST_FRAMEWORK = {
     ],
 }
 
+SIMPLE_JWT = {
+    # Record User.last_login on every login (used by the admin panel).
+    'UPDATE_LAST_LOGIN': True,
+}
+
 
 # --------------------------------------------------
 # URLS

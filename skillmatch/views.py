@@ -37,7 +37,12 @@ from .quiz_bank import (
     top_up_skill,
 )
 from .quiz_llm import QuizGenerationError
-from .quiz_policy import expire_abandoned_quiz, quiz_availability, start_grace
+from .quiz_policy import (
+    expire_abandoned_quiz,
+    latest_submitted_attempt,
+    quiz_availability,
+    start_grace,
+)
 from system_config.services import get_config
 
 # Must stay in sync with the suggested skills in the frontend (Profile / onboarding).
@@ -55,15 +60,59 @@ DEFAULT_SKILL_NAMES = {
 SKILL_PENDING_ERROR = "This skill is waiting for admin approval."
 
 
-def attempt_payload(attempt):
+REVIEW_FIELDS = [
+    "order",
+    "question_text",
+    "option_a",
+    "option_b",
+    "option_c",
+    "option_d",
+    "difficulty",
+]
+
+
+def build_review(questions, answer_map):
+    """Full per-question record stored on the attempt (includes correct answers)."""
+    review = []
+    for q in sorted(questions, key=lambda item: int(item["order"])):
+        selected = answer_map.get(int(q["order"]))
+        review.append({
+            **{field: q.get(field) for field in REVIEW_FIELDS},
+            "correct_option": q.get("correct_option"),
+            "selected": selected,
+            "is_correct": selected is not None and selected == q.get("correct_option"),
+        })
+    return review
+
+
+def public_review(review):
+    """What the user may see; hides the right answer to missed questions if configured."""
+    show_answers = get_config("quiz.review_show_answers")
+    return [
+        {
+            **item,
+            "correct_option": (
+                item.get("correct_option")
+                if show_answers or item.get("is_correct")
+                else None
+            ),
+        }
+        for item in review
+    ]
+
+
+def attempt_payload(attempt, *, include_review=False):
     if attempt is None:
         return None
-    return {
+    payload = {
         "score": attempt.score,
         "passed": attempt.passed,
         "abandoned": attempt.abandoned,
         "created_at": attempt.created_at,
     }
+    if include_review:
+        payload["review"] = public_review(attempt.review or [])
+    return payload
 
 
 class RegisterView(generics.CreateAPIView):
@@ -224,7 +273,7 @@ class SkillQuizView(APIView):
                 "has_attempt": attempt is not None,
                 "available_at": available_at,
                 "cooldown_hours": get_config("quiz.cooldown_hours"),
-                "attempt": attempt_payload(attempt),
+                "attempt": attempt_payload(attempt, include_review=True),
                 "questions": [],
             }
         )
@@ -328,6 +377,51 @@ class SkillQuizStartView(APIView):
         )
 
 
+class SkillQuizReviewView(APIView):
+    """Read-only review of the user's latest submitted attempt for a skill."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, skill_id):
+        skill = get_object_or_404(Skill, pk=skill_id)
+        attempt = latest_submitted_attempt(request.user, skill)
+        if attempt is None:
+            return Response(
+                {"error": "You don't have a quiz attempt to review for this skill yet."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user_skill = UserSkill.objects.filter(
+            user=request.user,
+            skill=skill,
+            skill_type="teach",
+        ).first()
+        is_verified = bool(user_skill and user_skill.is_verified)
+        can_take, _latest, available_at = quiz_availability(
+            request.user,
+            skill,
+            is_verified=is_verified,
+        )
+
+        return Response(
+            {
+                "skill_id": skill.id,
+                "skill_name": skill.name,
+                "score": attempt.score,
+                # Older attempts didn't store questions; they were always out of the quiz length.
+                "total": len(attempt.review) or get_config("quiz.question_count"),
+                "has_details": bool(attempt.review),
+                "passed": attempt.passed,
+                "created_at": attempt.created_at,
+                "pass_score": get_config("quiz.pass_score"),
+                "is_verified": is_verified,
+                "can_take": bool(user_skill) and skill.is_approved and can_take,
+                "available_at": None if can_take else available_at,
+                "review": public_review(attempt.review),
+            }
+        )
+
+
 class SkillQuizSubmitView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -399,11 +493,8 @@ class SkillQuizSubmitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        score = 0
-        for q in questions:
-            order = int(q["order"])
-            if answer_map.get(order) == q.get("correct_option"):
-                score += 1
+        review = build_review(questions, answer_map)
+        score = sum(1 for item in review if item["is_correct"])
 
         pass_score = get_config("quiz.pass_score")
         passed = score >= pass_score
@@ -413,6 +504,7 @@ class SkillQuizSubmitView(APIView):
             skill=skill,
             score=score,
             passed=passed,
+            review=review,
         )
         pending.delete()
 
@@ -429,6 +521,7 @@ class SkillQuizSubmitView(APIView):
                 "pass_score": pass_score,
                 "can_retry": not passed,
                 "cooldown_hours": get_config("quiz.cooldown_hours"),
+                "review": public_review(review),
             }
         )
 

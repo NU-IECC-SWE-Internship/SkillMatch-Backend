@@ -10,6 +10,7 @@ from .views import (
     SkillQuizView,
     SkillQuizStartView,
     SkillQuizSubmitView,
+    SkillQuizReviewView,
     UserAvailabilityView,
     UserSessionSettingsView,
     UserProfileView,
@@ -45,6 +46,11 @@ urlpatterns = [
         "skills/<int:skill_id>/quiz/submit/",
         SkillQuizSubmitView.as_view(),
         name="skill-quiz-submit",
+    ),
+    path(
+        "skills/<int:skill_id>/quiz/review/",
+        SkillQuizReviewView.as_view(),
+        name="skill-quiz-review",
     ),
 
     path(

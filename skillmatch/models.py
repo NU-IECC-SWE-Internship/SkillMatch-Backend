@@ -189,6 +189,8 @@ class SkillQuizAttempt(models.Model):
     score = models.PositiveSmallIntegerField()
     passed = models.BooleanField(default=False)
     abandoned = models.BooleanField(default=False)
+    # One entry per question: text, options, correct_option, selected (None = timed out).
+    review = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

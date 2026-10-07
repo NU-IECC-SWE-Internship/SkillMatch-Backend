@@ -119,6 +119,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
     quiz_score = serializers.SerializerMethodField()
     can_take_quiz = serializers.SerializerMethodField()
     quiz_available_at = serializers.SerializerMethodField()
+    has_quiz_review = serializers.SerializerMethodField()
 
     class Meta:
         model = UserSkill
@@ -134,6 +135,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "quiz_score",
             "can_take_quiz",
             "quiz_available_at",
+            "has_quiz_review",
         ]
         read_only_fields = [
             "id",
@@ -144,6 +146,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "quiz_score",
             "can_take_quiz",
             "quiz_available_at",
+            "has_quiz_review",
         ]
 
     def _availability(self, obj):
@@ -172,6 +175,12 @@ class UserSkillSerializer(serializers.ModelSerializer):
         can_take, _attempt, _available_at = self._availability(obj)
         return can_take
 
+    def get_has_quiz_review(self, obj):
+        if obj.skill_type != "teach":
+            return False
+        from .quiz_policy import latest_submitted_attempt
+        return latest_submitted_attempt(obj.user, obj.skill) is not None
+
     def get_quiz_available_at(self, obj):
         can_take, _attempt, available_at = self._availability(obj)
         if can_take or available_at is None:
@@ -182,7 +191,10 @@ class UserSkillSerializer(serializers.ModelSerializer):
 
 class QuizAnswerSerializer(serializers.Serializer):
     question_id = serializers.IntegerField()
-    selected = serializers.ChoiceField(choices=["A", "B", "C", "D"])
+    # null = the question timed out without an answer.
+    selected = serializers.ChoiceField(
+        choices=["A", "B", "C", "D"], allow_null=True, required=False, default=None
+    )
 
 
 class QuizSubmitSerializer(serializers.Serializer):

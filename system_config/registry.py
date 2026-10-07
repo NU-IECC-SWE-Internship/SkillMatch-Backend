@@ -93,6 +93,19 @@ DEFINITIONS = [
         ),
     ),
 
+    ConfigDefinition(
+        key="quiz.review_show_answers",
+        default=True,
+        value_type=BOOL,
+        category="quiz",
+        description=(
+            "After a quiz, show users the correct answer for questions they got wrong. "
+            "When off, the review only marks each answer as right or wrong, which keeps "
+            "the question bank from leaking between attempts."
+        ),
+        is_public=True,
+    ),
+
     # Question bank
     ConfigDefinition(
         key="quiz_bank.size",

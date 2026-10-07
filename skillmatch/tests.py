@@ -1,13 +1,21 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from itertools import count
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from .models import Skill, SkillQuizQuestion, UserSkill
+from .models import (
+    PendingSkillQuiz,
+    Profile,
+    Skill,
+    SkillQuizAttempt,
+    SkillQuizQuestion,
+    UserSkill,
+)
 from .quiz_bank import (
     bank_size,
     current_cycle,
@@ -20,6 +28,7 @@ from .quiz_bank import (
     top_up_skill,
 )
 from .quiz_llm import QuizGenerationError, generate_quiz_questions
+from .quiz_policy import quiz_availability
 
 _ids = count(1)
 
@@ -254,6 +263,141 @@ class QuizLlmTests(TestCase):
         self.assertEqual(mock_post.call_count, 1)
 
 
+class AbandonedQuizTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("omar", password="x")
+        self.skill = Skill.objects.create(name="Django")
+        UserSkill.objects.create(user=self.user, skill=self.skill, skill_type="teach")
+
+    def start_quiz(self, minutes_ago):
+        pending = PendingSkillQuiz.objects.create(user=self.user, skill=self.skill, questions=[])
+        PendingSkillQuiz.objects.filter(pk=pending.pk).update(
+            created_at=timezone.now() - timedelta(minutes=minutes_ago)
+        )
+
+    def test_timed_out_quiz_starts_cooldown_without_reopening(self):
+        self.start_quiz(minutes_ago=30)
+        can_take, attempt, available_at = quiz_availability(self.user, self.skill)
+        self.assertFalse(can_take)
+        self.assertTrue(attempt.abandoned)
+        self.assertIsNotNone(available_at)
+        self.assertFalse(PendingSkillQuiz.objects.exists())
+
+    def test_quiz_in_progress_is_left_alone(self):
+        self.start_quiz(minutes_ago=1)
+        can_take, attempt, _ = quiz_availability(self.user, self.skill)
+        self.assertTrue(can_take)
+        self.assertIsNone(attempt)
+        self.assertTrue(PendingSkillQuiz.objects.exists())
+
+    def test_profile_skill_list_shows_cooldown(self):
+        self.start_quiz(minutes_ago=30)
+        client = APIClient()
+        client.force_authenticate(self.user)
+        skill = client.get("/api/my-skills/").data[0]
+        self.assertFalse(skill["can_take_quiz"])
+        self.assertTrue(skill["has_quiz_attempt"])
+        self.assertIsNotNone(skill["quiz_available_at"])
+
+
+class QuizReviewTests(TestCase):
+    def setUp(self):
+        from system_config.services import clear_cache
+
+        clear_cache()
+        self.client = APIClient()
+        self.user = User.objects.create_user("learner", password="x")
+        self.skill = Skill.objects.create(name="Python")
+        UserSkill.objects.create(user=self.user, skill=self.skill, skill_type="teach")
+        PendingSkillQuiz.objects.create(
+            user=self.user,
+            skill=self.skill,
+            questions=[
+                {
+                    "order": i,
+                    "question_text": f"Q{i}",
+                    "option_a": "a",
+                    "option_b": "b",
+                    "option_c": "c",
+                    "option_d": "d",
+                    "correct_option": "A",
+                    "difficulty": "easy",
+                }
+                for i in (1, 2, 3)
+            ],
+        )
+        self.client.force_authenticate(self.user)
+        self.url = f"/api/skills/{self.skill.id}/quiz/submit/"
+        self.answers = [
+            {"question_id": 1, "selected": "A"},
+            {"question_id": 2, "selected": "C"},
+            {"question_id": 3, "selected": None},
+        ]
+
+    def test_submit_returns_and_stores_review(self):
+        data = self.client.post(self.url, {"answers": self.answers}, format="json").data
+        self.assertEqual(data["score"], 1)
+        review = data["review"]
+        self.assertEqual([item["order"] for item in review], [1, 2, 3])
+        self.assertEqual([item["is_correct"] for item in review], [True, False, False])
+        self.assertEqual(review[1]["selected"], "C")
+        self.assertEqual(review[1]["correct_option"], "A")
+        self.assertIsNone(review[2]["selected"])
+
+        attempt = SkillQuizAttempt.objects.get(user=self.user)
+        self.assertEqual(len(attempt.review), 3)
+
+        # The quiz page shows the same review during the cooldown.
+        page = self.client.get(f"/api/skills/{self.skill.id}/quiz/").data
+        self.assertEqual(page["attempt"]["review"], review)
+
+    def test_review_endpoint_and_profile_flag(self):
+        review_url = f"/api/skills/{self.skill.id}/quiz/review/"
+        self.assertEqual(self.client.get(review_url).status_code, 404)
+        skills = self.client.get("/api/my-skills/").data
+        self.assertFalse(skills[0]["has_quiz_review"])
+
+        submitted = self.client.post(self.url, {"answers": self.answers}, format="json").data
+
+        data = self.client.get(review_url).data
+        self.assertEqual(data["score"], 1)
+        self.assertEqual(data["total"], 3)
+        self.assertFalse(data["can_take"])
+        self.assertEqual(data["review"], submitted["review"])
+        skills = self.client.get("/api/my-skills/").data
+        self.assertTrue(skills[0]["has_quiz_review"])
+
+        self.assertTrue(data["has_details"])
+
+        # A later abandoned attempt has nothing to review, so the submitted one is still shown.
+        SkillQuizAttempt.objects.create(
+            user=self.user, skill=self.skill, score=0, passed=False, abandoned=True
+        )
+        self.assertEqual(self.client.get(review_url).data["score"], 1)
+
+    def test_old_attempt_without_saved_answers_is_reviewable(self):
+        SkillQuizAttempt.objects.create(user=self.user, skill=self.skill, score=6, passed=False)
+        self.assertTrue(self.client.get("/api/my-skills/").data[0]["has_quiz_review"])
+
+        data = self.client.get(f"/api/skills/{self.skill.id}/quiz/review/").data
+        self.assertEqual(data["score"], 6)
+        self.assertEqual(data["total"], 10)
+        self.assertFalse(data["has_details"])
+        self.assertEqual(data["review"], [])
+
+    def test_correct_answers_hidden_when_disabled(self):
+        from system_config.models import SystemConfig
+
+        SystemConfig.objects.filter(key="quiz.review_show_answers").update(value="false")
+        from system_config.services import clear_cache
+
+        clear_cache()
+        review = self.client.post(self.url, {"answers": self.answers}, format="json").data["review"]
+        self.assertEqual(review[0]["correct_option"], "A")
+        self.assertIsNone(review[1]["correct_option"])
+        self.assertIsNone(review[2]["correct_option"])
+
+
 class AdminUsersApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -314,3 +458,32 @@ class AdminUsersApiTests(TestCase):
         self.assertEqual(data["users"]["total"], 3)
         self.assertEqual(data["users"]["staff"], 1)
         self.assertEqual(data["skills"]["verified_teachers"], 1)
+
+    def test_overview_signups_and_top_skills(self):
+        data = self.client.get("/api/admin/overview/").data
+        self.assertEqual(len(data["signups"]), 14)
+        self.assertEqual(sum(day["count"] for day in data["signups"]), 3)
+        self.assertEqual(data["users"]["onboarding"], 2)
+        self.assertEqual(
+            data["top_skills"],
+            [{"id": data["top_skills"][0]["id"], "name": "Python", "teachers": 1, "learners": 0, "verified": 1}],
+        )
+
+    def test_status_counts_and_onboarding_filter(self):
+        Profile.objects.create(user=self.omar, onboarding_completed=True)
+        data = self.client.get("/api/admin/users/").data
+        self.assertEqual(data["counts"]["all"], 3)
+        self.assertEqual(data["counts"]["role"], {"staff": 1, "member": 2})
+        self.assertEqual(data["counts"]["status"], {"active": 2, "onboarding": 1, "inactive": 0})
+
+        data = self.client.get("/api/admin/users/", {"status": "onboarding"}).data
+        self.assertEqual([u["username"] for u in data["results"]], ["peteryakoub"])
+
+        data = self.client.get("/api/admin/users/", {"status": "active"}).data
+        self.assertEqual({u["username"] for u in data["results"]}, {"admin", "omarali"})
+
+    def test_sort_by_name(self):
+        data = self.client.get("/api/admin/users/", {"sort": "name"}).data
+        self.assertEqual(
+            [u["username"] for u in data["results"]], ["admin", "omarali", "peteryakoub"]
+        )
