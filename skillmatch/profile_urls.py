@@ -17,6 +17,9 @@ from .views import (
     AdminSkillListView,
     AdminSkillApproveView,
     AdminSkillDenyView,
+    NotificationListView,
+    NotificationMarkReadView,
+    NotificationMarkAllReadView,
     AdminSkillQuestionListCreateView,
     AdminSkillQuestionGenerateView,
     AdminQuizQuestionDetailView,
@@ -117,6 +120,22 @@ urlpatterns = [
         "admin/skills/<int:pk>/deny/",
         AdminSkillDenyView.as_view(),
         name="admin-skill-deny"
+    ),
+
+    path(
+        "notifications/",
+        NotificationListView.as_view(),
+        name="notifications-list",
+    ),
+    path(
+        "notifications/<int:pk>/read/",
+        NotificationMarkReadView.as_view(),
+        name="notification-mark-read",
+    ),
+    path(
+        "notifications/mark-all-read/",
+        NotificationMarkAllReadView.as_view(),
+        name="notification-mark-all-read",
     ),
 
     path(

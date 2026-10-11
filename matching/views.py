@@ -8,6 +8,11 @@ from django.utils.dateparse import parse_time
 from skillmatch.models import Skill, UserSkill, AvailabilitySlot
 from .models import MatchRequest
 from .serializers import MatchRequestSerializer, MatchSerializer
+from skillmatch.emails import (
+    send_match_request_received_email,
+    send_match_request_accepted_email,
+    send_match_request_rejected_email,
+)
 
 
 def approved_user_skills():
@@ -162,11 +167,10 @@ def create_request(request):
     )
 
     if serializer.is_valid():
-
         match_request = serializer.save(
             sender=request.user
         )
-
+        send_match_request_received_email(match_request)
         return Response(
             MatchRequestSerializer(
                 match_request
@@ -283,6 +287,8 @@ def respond_to_request(request, pk):
                 "rejection_reason",
             ]
         )
+
+        send_match_request_rejected_email(match_req)
 
         return Response(
             {
@@ -448,6 +454,8 @@ def respond_to_request(request, pk):
                 ]
             )
 
+            send_match_request_accepted_email(match_req, first_meeting)
+
             return Response(
                 {
                     "message": "Request accepted successfully.",
@@ -470,6 +478,8 @@ def respond_to_request(request, pk):
                     "rejection_reason",
                 ]
             )
+
+            send_match_request_accepted_email(match_req, first_meeting)
 
             return Response(
                 {
@@ -498,6 +508,8 @@ def respond_to_request(request, pk):
                 "rejection_reason",
             ]
         )
+
+        send_match_request_accepted_email(match_req, first_meeting)
 
         return Response(
             {

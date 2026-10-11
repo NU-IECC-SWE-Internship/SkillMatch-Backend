@@ -1,0 +1,25 @@
+{% extends "emails/base_email.html" %}
+
+{% block title %}Match Request Accepted | SkillMatch{% endblock %}
+
+{% block content %}
+  <h2>Your Match Request Was Accepted! 🎉</h2>
+  <p>Hi <strong>{{ sender.username }}</strong>,</p>
+  <p>Great news! <strong>{{ receiver.username }}</strong> has accepted your match request for <strong>{{ skill_name }}</strong>.</p>
+
+  <div class="info-box">
+    <p style="margin: 0 0 6px 0;"><strong>Partner:</strong> {{ receiver.username }}</p>
+    <p style="margin: 0 0 6px 0;"><strong>Scheduled Time:</strong> {{ scheduled_time }}</p>
+    {% if meeting.room_url %}
+      <p style="margin: 0;"><strong>Video Room:</strong> Ready</p>
+    {% endif %}
+  </div>
+
+  <div class="btn-container">
+    <a href="{{ site_url }}/meetings" class="btn">View Meeting & Room</a>
+  </div>
+
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
+    Your video room link and timer will be ready for you at the scheduled time in your Meetings dashboard.
+  </p>
+{% endblock %}

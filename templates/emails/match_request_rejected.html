@@ -1,0 +1,23 @@
+{% extends "emails/base_email.html" %}
+
+{% block title %}Match Request Update | SkillMatch{% endblock %}
+
+{% block content %}
+  <h2>Match Request Update</h2>
+  <p>Hi <strong>{{ sender.username }}</strong>,</p>
+  <p><strong>{{ receiver.username }}</strong> was unable to accept your match request for <strong>{{ skill_name }}</strong> at this time.</p>
+
+  {% if rejection_reason %}
+    <div class="info-box">
+      <p style="margin: 0;"><strong>Reason provided:</strong> <em>"{{ rejection_reason }}"</em></p>
+    </div>
+  {% endif %}
+
+  <div class="btn-container">
+    <a href="{{ site_url }}/matches" class="btn">Explore Other Matches</a>
+  </div>
+
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
+    Don't be discouraged! Check out other community members with matching skills or update your availability.
+  </p>
+{% endblock %}

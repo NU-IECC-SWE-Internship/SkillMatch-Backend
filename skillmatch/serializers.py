@@ -6,6 +6,7 @@ from .models import (
     Skill,
     UserSkill,
     AvailabilitySlot,
+    Notification,
     SkillQuizQuestion,
 )
 
@@ -29,6 +30,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "max_session_duration_minutes",
             "rating_average",
             "rating_count",
+            "email_notifications_enabled",
         ]
 
         read_only_fields = [
@@ -321,3 +323,18 @@ class ShowProfileSerializer(serializers.ModelSerializer):
             skills,
             many=True
         ).data
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = [
+            "id",
+            "title",
+            "message",
+            "notification_type",
+            "link",
+            "is_read",
+            "created_at",
+        ]
+        read_only_fields = fields

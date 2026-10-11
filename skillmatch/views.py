@@ -14,6 +14,7 @@ from .models import (
     AvailabilitySlot,
     SkillQuizAttempt,
     PendingSkillQuiz,
+    Notification,
     SkillQuizQuestion,
 )
 
@@ -27,6 +28,7 @@ from .serializers import (
     UserSerializer,
     QuizSubmitSerializer,
     AdminSkillSerializer,
+    NotificationSerializer,
     AdminQuizQuestionSerializer,
 )
 from .quiz_bank import (
@@ -802,3 +804,63 @@ class UserProfileView(APIView):
         serializer = ShowProfileSerializer(profile)
 
         return Response(serializer.data)
+
+
+class NotificationListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        notifications = Notification.objects.filter(recipient=request.user)[:30]
+        unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response({
+            "unread_count": unread_count,
+            "notifications": serializer.data,
+        })
+
+
+class NotificationMarkReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        Notification.objects.filter(id=pk, recipient=request.user).update(is_read=True)
+        unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"notifications_user_{request.user.id}",
+                    {
+                        "type": "notification_read",
+                        "id": int(pk),
+                        "unread_count": unread_count,
+                    },
+                )
+        except Exception:
+            pass
+        return Response({"success": True})
+
+
+class NotificationMarkAllReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"notifications_user_{request.user.id}",
+                    {
+                        "type": "notification_all_read",
+                        "unread_count": 0,
+                    },
+                )
+        except Exception:
+            pass
+        return Response({"success": True})
+

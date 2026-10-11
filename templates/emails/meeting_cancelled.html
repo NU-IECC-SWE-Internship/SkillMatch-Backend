@@ -1,0 +1,22 @@
+{% extends "emails/base_email.html" %}
+
+{% block title %}Meeting Cancelled | SkillMatch{% endblock %}
+
+{% block content %}
+  <h2>Meeting Notice: Session Cancelled ⚠️</h2>
+  <p>Hi <strong>{{ recipient.username }}</strong>,</p>
+  <p>Your upcoming session with <strong>{{ cancelled_by.username }}</strong> has been cancelled.</p>
+
+  <div class="info-box">
+    <p style="margin: 0 0 6px 0;"><strong>Session:</strong> {{ skill_name }}</p>
+    <p style="margin: 0;"><strong>Scheduled Time:</strong> {{ scheduled_time }}</p>
+  </div>
+
+  <div class="btn-container">
+    <a href="{{ site_url }}/meetings" class="btn">View Meetings Dashboard</a>
+  </div>
+
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
+    You can reconnect with other members or send a new match request when you are available.
+  </p>
+{% endblock %}

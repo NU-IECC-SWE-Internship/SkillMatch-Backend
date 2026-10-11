@@ -19,7 +19,10 @@ django_asgi_app = get_asgi_application()
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.security.websocket import AllowedHostsOriginValidator
 from chating.auth import JwtAuthMiddleware
-from chating.routing import websocket_urlpatterns
+from chating.routing import websocket_urlpatterns as chat_websocket_urlpatterns
+from skillmatch.routing import websocket_urlpatterns as notification_websocket_urlpatterns
+
+websocket_urlpatterns = chat_websocket_urlpatterns + notification_websocket_urlpatterns
 
 application = ProtocolTypeRouter({
     'http': django_asgi_app,
