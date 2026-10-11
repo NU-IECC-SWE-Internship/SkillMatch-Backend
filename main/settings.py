@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'skillmatch',
     'matching',
     'meetings',
+    'system_config',
     'chating',
 ]
 
@@ -111,6 +112,11 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+}
+
+SIMPLE_JWT = {
+    # Record User.last_login on every login (used by the admin panel).
+    'UPDATE_LAST_LOGIN': True,
 }
 
 

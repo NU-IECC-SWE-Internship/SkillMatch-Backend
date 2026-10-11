@@ -130,6 +130,11 @@ class UserSkill(models.Model):
 
 
 class SkillQuizQuestion(models.Model):
+    """
+    Question bank entry. Each skill collects up to `quiz_bank.size` questions per
+    monthly cycle ("YYYY-MM"); quizzes draw a random sample from the bank.
+    """
+
     OPTION_CHOICES = [
         ("A", "A"),
         ("B", "B"),
@@ -137,10 +142,27 @@ class SkillQuizQuestion(models.Model):
         ("D", "D"),
     ]
 
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+    DIFFICULTY_CHOICES = [
+        (EASY, "Easy"),
+        (MEDIUM, "Medium"),
+        (HARD, "Hard"),
+    ]
+    DIFFICULTY_ORDER = [EASY, MEDIUM, HARD]
+
     skill = models.ForeignKey(
         Skill,
         on_delete=models.CASCADE,
         related_name="quiz_questions",
+    )
+    cycle = models.CharField(max_length=7, db_index=True)
+    difficulty = models.CharField(
+        max_length=10,
+        choices=DIFFICULTY_CHOICES,
+        default=MEDIUM,
+        db_index=True,
     )
     question_text = models.TextField()
     option_a = models.CharField(max_length=255)
@@ -148,19 +170,13 @@ class SkillQuizQuestion(models.Model):
     option_c = models.CharField(max_length=255)
     option_d = models.CharField(max_length=255)
     correct_option = models.CharField(max_length=1, choices=OPTION_CHOICES)
-    order = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["order"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["skill", "order"],
-                name="unique_skill_quiz_order",
-            )
-        ]
+        ordering = ["skill", "-cycle", "id"]
 
     def __str__(self):
-        return f"{self.skill.name} Q{self.order}"
+        return f"{self.skill.name} [{self.cycle}] #{self.id}"
 
 
 class SkillQuizAttempt(models.Model):
@@ -177,6 +193,8 @@ class SkillQuizAttempt(models.Model):
     score = models.PositiveSmallIntegerField()
     passed = models.BooleanField(default=False)
     abandoned = models.BooleanField(default=False)
+    # One entry per question: text, options, correct_option, selected (None = timed out).
+    review = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -228,6 +246,7 @@ class PendingSkillQuiz(models.Model):
                     "option_b": item.get("option_b"),
                     "option_c": item.get("option_c"),
                     "option_d": item.get("option_d"),
+                    "difficulty": item.get("difficulty", SkillQuizQuestion.MEDIUM),
                 }
             )
         return public
@@ -297,4 +316,4 @@ class Notification(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Notification({self.recipient.username}, '{self.title}', read={self.is_read})"
+        return f"Notification({self.recipient.username}, '{self.title}', read={self.is_read})"

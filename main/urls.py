@@ -10,6 +10,7 @@ urlpatterns = [
     # Profile and matching features
     path("api/", include("skillmatch.profile_urls")),
     path("api/", include("matching.urls")),
+    path("api/", include("system_config.urls")),
     path('api/', include('chating.urls')),
 
     # Meetings feature
