@@ -551,16 +551,6 @@ class UserAvailabilityView(APIView):
 
 
 class UserSessionSettingsView(APIView):
-    """
-    Information needed when another user
-    wants to request a session.
-
-    Returns:
-    - username
-    - maximum session duration
-    - availability slots
-    """
-
     permission_classes = [
         permissions.IsAuthenticated
     ]
@@ -570,6 +560,7 @@ class UserSessionSettingsView(APIView):
         request,
         user_id
     ):
+        from meetings.models import Meeting
 
         try:
             user = User.objects.get(
@@ -577,7 +568,6 @@ class UserSessionSettingsView(APIView):
             )
 
         except User.DoesNotExist:
-
             return Response(
                 {
                     "detail": (
@@ -587,13 +577,11 @@ class UserSessionSettingsView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-
         profile, created = (
             Profile.objects.get_or_create(
                 user=user
             )
         )
-
 
         slots = (
             AvailabilitySlot.objects.filter(
@@ -604,7 +592,6 @@ class UserSessionSettingsView(APIView):
             )
         )
 
-
         slots_serializer = (
             AvailabilitySlotSerializer(
                 slots,
@@ -612,6 +599,25 @@ class UserSessionSettingsView(APIView):
             )
         )
 
+        booked_meetings = (
+            Meeting.objects.filter(
+                status="SCHEDULED",
+                end_time__gt=timezone.now()
+            )
+            .filter(
+                Q(request__sender=user)
+                | Q(request__receiver=user)
+            )
+            .order_by("start_time")
+        )
+
+        busy_intervals = [
+            {
+                "start_time": meeting.start_time.isoformat(),
+                "end_time": meeting.end_time.isoformat(),
+            }
+            for meeting in booked_meetings
+        ]
 
         return Response(
             {
@@ -623,9 +629,11 @@ class UserSessionSettingsView(APIView):
 
                 "availability":
                     slots_serializer.data,
+
+                "busy_intervals":
+                    busy_intervals,
             }
         )
-
 class AvailabilityUpdateDeleteView(
     generics.RetrieveUpdateDestroyAPIView
 ):
