@@ -24,7 +24,15 @@ from .views import (
     AdminSkillQuestionGenerateView,
     AdminQuizQuestionDetailView,
 )
-from .admin_views import AdminOverviewView, AdminUserDetailView, AdminUserListView
+from .admin_views import (
+    AdminOverviewView,
+    AdminSkillDetailView,
+    AdminUserDetailView,
+    AdminUserListView,
+    AdminUserSkillCreateView,
+    AdminUserSkillDetailView,
+    AdminUserSkillResetQuizView,
+)
 
 
 urlpatterns = [
@@ -172,5 +180,29 @@ urlpatterns = [
         "admin/users/<int:pk>/",
         AdminUserDetailView.as_view(),
         name="admin-user-detail"
+    ),
+
+    path(
+        "admin/users/<int:pk>/skills/",
+        AdminUserSkillCreateView.as_view(),
+        name="admin-user-skill-create"
+    ),
+
+    path(
+        "admin/user-skills/<int:pk>/",
+        AdminUserSkillDetailView.as_view(),
+        name="admin-user-skill-detail"
+    ),
+
+    path(
+        "admin/user-skills/<int:pk>/reset-quiz/",
+        AdminUserSkillResetQuizView.as_view(),
+        name="admin-user-skill-reset-quiz"
+    ),
+
+    path(
+        "admin/skills/<int:pk>/",
+        AdminSkillDetailView.as_view(),
+        name="admin-skill-detail"
     ),
 ]
