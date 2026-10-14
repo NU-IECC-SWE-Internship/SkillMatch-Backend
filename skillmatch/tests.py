@@ -28,7 +28,7 @@ from .quiz_bank import (
     top_up_skill,
 )
 from .quiz_llm import QuizGenerationError, generate_quiz_questions
-from .quiz_policy import quiz_availability
+from .quiz_policy import attempts_left, quiz_availability, reset_attempts
 
 _ids = count(1)
 
@@ -275,13 +275,47 @@ class AbandonedQuizTests(TestCase):
             created_at=timezone.now() - timedelta(minutes=minutes_ago)
         )
 
-    def test_timed_out_quiz_starts_cooldown_without_reopening(self):
+    def add_attempts(self, n, days_ago=0):
+        for _ in range(n):
+            attempt = SkillQuizAttempt.objects.create(
+                user=self.user, skill=self.skill, score=3, passed=False
+            )
+            SkillQuizAttempt.objects.filter(pk=attempt.pk).update(
+                created_at=timezone.now() - timedelta(days=days_ago)
+            )
+
+    def test_timed_out_quiz_uses_one_attempt(self):
         self.start_quiz(minutes_ago=30)
         can_take, attempt, available_at = quiz_availability(self.user, self.skill)
-        self.assertFalse(can_take)
+        self.assertTrue(can_take)
         self.assertTrue(attempt.abandoned)
-        self.assertIsNotNone(available_at)
+        self.assertIsNone(available_at)
+        self.assertEqual(attempts_left(self.user, self.skill), 4)
         self.assertFalse(PendingSkillQuiz.objects.exists())
+
+    def test_five_attempts_per_week(self):
+        self.add_attempts(1, days_ago=3)
+        self.add_attempts(3, days_ago=1)
+        self.assertTrue(quiz_availability(self.user, self.skill)[0])
+
+        self.add_attempts(1)
+        can_take, _attempt, available_at = quiz_availability(self.user, self.skill)
+        self.assertFalse(can_take)
+        # The oldest attempt (3 days ago) frees up 7 days after it was taken.
+        expected = timezone.now() + timedelta(days=4)
+        self.assertLess(abs((available_at - expected).total_seconds()), 5)
+
+    def test_attempts_older_than_a_week_do_not_count(self):
+        self.add_attempts(5, days_ago=8)
+        self.assertTrue(quiz_availability(self.user, self.skill)[0])
+        self.assertEqual(attempts_left(self.user, self.skill), 5)
+
+    def test_reset_gives_attempts_back(self):
+        self.add_attempts(5)
+        self.assertFalse(quiz_availability(self.user, self.skill)[0])
+        reset_attempts(self.user, self.skill)
+        self.assertTrue(quiz_availability(self.user, self.skill)[0])
+        self.assertEqual(SkillQuizAttempt.objects.filter(user=self.user).count(), 5)
 
     def test_quiz_in_progress_is_left_alone(self):
         self.start_quiz(minutes_ago=1)
@@ -290,13 +324,19 @@ class AbandonedQuizTests(TestCase):
         self.assertIsNone(attempt)
         self.assertTrue(PendingSkillQuiz.objects.exists())
 
-    def test_profile_skill_list_shows_cooldown(self):
-        self.start_quiz(minutes_ago=30)
+    def test_profile_skill_list_shows_attempts(self):
         client = APIClient()
         client.force_authenticate(self.user)
+        self.add_attempts(2)
+        skill = client.get("/api/my-skills/").data[0]
+        self.assertTrue(skill["can_take_quiz"])
+        self.assertEqual(skill["quiz_attempts_left"], 3)
+
+        self.add_attempts(3)
         skill = client.get("/api/my-skills/").data[0]
         self.assertFalse(skill["can_take_quiz"])
         self.assertTrue(skill["has_quiz_attempt"])
+        self.assertEqual(skill["quiz_attempts_left"], 0)
         self.assertIsNotNone(skill["quiz_available_at"])
 
 
@@ -362,7 +402,8 @@ class QuizReviewTests(TestCase):
         data = self.client.get(review_url).data
         self.assertEqual(data["score"], 1)
         self.assertEqual(data["total"], 3)
-        self.assertFalse(data["can_take"])
+        self.assertTrue(data["can_take"])
+        self.assertEqual(data["attempts_left"], 4)
         self.assertEqual(data["review"], submitted["review"])
         skills = self.client.get("/api/my-skills/").data
         self.assertTrue(skills[0]["has_quiz_review"])
@@ -461,8 +502,18 @@ class AdminUsersApiTests(TestCase):
 
     def test_overview_signups_and_top_skills(self):
         data = self.client.get("/api/admin/overview/").data
-        self.assertEqual(len(data["signups"]), 14)
+        self.assertEqual(data["signups_unit"], "day")
+        self.assertEqual(len(data["signups"]), 7)
         self.assertEqual(sum(day["count"] for day in data["signups"]), 3)
+
+        today = self.client.get("/api/admin/overview/?period=today").data
+        self.assertEqual(today["signups_unit"], "hour")
+        self.assertEqual(len(today["signups"]), 24)
+        self.assertEqual(sum(hour["count"] for hour in today["signups"]), 3)
+
+        all_time = self.client.get("/api/admin/overview/?period=all").data
+        self.assertEqual(all_time["signups_unit"], "month")
+        self.assertEqual(sum(month["count"] for month in all_time["signups"]), 3)
         self.assertEqual(data["users"]["onboarding"], 2)
         self.assertEqual(
             data["top_skills"],
@@ -487,3 +538,105 @@ class AdminUsersApiTests(TestCase):
         self.assertEqual(
             [u["username"] for u in data["results"]], ["admin", "omarali", "peteryakoub"]
         )
+
+    def test_period_filters(self):
+        User.objects.filter(pk=self.peter.pk).update(
+            date_joined=timezone.now() - timedelta(days=40)
+        )
+        SkillQuizAttempt.objects.create(
+            user=self.omar, skill=Skill.objects.get(name="Python"), score=8, passed=True
+        )
+
+        data = self.client.get("/api/admin/overview/", {"period": "today"}).data
+        self.assertEqual(data["period"], "today")
+        self.assertEqual(data["activity"]["new_users"], 2)
+        self.assertEqual(data["activity"]["quizzes"]["passed"], 1)
+
+        data = self.client.get("/api/admin/overview/", {"period": "all"}).data
+        self.assertIsNone(data["since"])
+        self.assertEqual(data["activity"]["new_users"], 3)
+
+        data = self.client.get("/api/admin/users/", {"joined": "month"}).data
+        self.assertEqual({u["username"] for u in data["results"]}, {"admin", "omarali"})
+        self.assertEqual(data["counts"]["all"], 2)
+
+    def test_edit_user_info(self):
+        url = f"/api/admin/users/{self.peter.id}/"
+        response = self.client.patch(
+            url,
+            {"first_name": " Peter ", "email": "peter@example.com", "bio": "Hi"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["first_name"], "Peter")
+        self.assertEqual(response.data["email"], "peter@example.com")
+        self.assertEqual(response.data["bio"], "Hi")
+
+        response = self.client.patch(url, {"username": "OMARALI"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        response = self.client.patch(url, {"email": "OMAR@example.com"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        response = self.client.patch(url, {"email": "not-an-email"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.peter.refresh_from_db()
+        self.assertEqual(self.peter.email, "peter@example.com")
+
+    def test_admin_can_edit_own_info_but_not_role(self):
+        url = f"/api/admin/users/{self.admin.id}/"
+        self.assertEqual(
+            self.client.patch(url, {"first_name": "Boss"}, format="json").status_code, 200
+        )
+        self.assertEqual(
+            self.client.patch(url, {"is_staff": False}, format="json").status_code, 400
+        )
+
+    def test_manage_user_skills(self):
+        django = Skill.objects.create(name="Django")
+        response = self.client.post(
+            f"/api/admin/users/{self.peter.id}/skills/",
+            {"skill_id": django.id, "skill_type": "teach"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        skill = response.data["skills"][0]
+        self.assertEqual(skill["quiz_attempts_left"], 5)
+
+        duplicate = self.client.post(
+            f"/api/admin/users/{self.peter.id}/skills/",
+            {"skill_id": django.id, "skill_type": "teach"},
+            format="json",
+        )
+        self.assertEqual(duplicate.status_code, 400)
+
+        url = f"/api/admin/user-skills/{skill['id']}/"
+        data = self.client.patch(url, {"is_verified": True}, format="json").data
+        self.assertTrue(data["skills"][0]["is_verified"])
+
+        data = self.client.delete(url).data
+        self.assertEqual(data["skills"], [])
+
+    def test_reset_quiz_attempts(self):
+        django = Skill.objects.create(name="Django")
+        user_skill = UserSkill.objects.create(user=self.peter, skill=django, skill_type="teach")
+        for _ in range(5):
+            SkillQuizAttempt.objects.create(user=self.peter, skill=django, score=2, passed=False)
+
+        data = self.client.get(f"/api/admin/users/{self.peter.id}/").data
+        self.assertEqual(data["skills"][0]["quiz_attempts_left"], 0)
+
+        data = self.client.post(f"/api/admin/user-skills/{user_skill.id}/reset-quiz/").data
+        self.assertEqual(data["skills"][0]["quiz_attempts_left"], 5)
+        self.assertTrue(all(a["excused"] for a in data["quiz_attempts"]))
+
+    def test_rename_and_delete_skill(self):
+        python = Skill.objects.get(name="Python")
+        Skill.objects.create(name="Django")
+        url = f"/api/admin/skills/{python.id}/"
+
+        self.assertEqual(self.client.patch(url, {"name": "django"}, format="json").status_code, 400)
+        data = self.client.patch(url, {"name": "  Python   3 "}, format="json").data
+        self.assertEqual(data["name"], "Python 3")
+
+        self.assertEqual(self.client.delete(url).status_code, 200)
+        self.assertFalse(Skill.objects.filter(pk=python.id).exists())
+        self.assertFalse(UserSkill.objects.filter(user=self.omar).exists())

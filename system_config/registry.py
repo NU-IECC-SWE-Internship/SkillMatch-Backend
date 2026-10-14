@@ -63,13 +63,28 @@ DEFINITIONS = [
         max_value=50,
     ),
     ConfigDefinition(
-        key="quiz.cooldown_hours",
-        default=24,
+        key="quiz.max_attempts",
+        default=5,
         value_type=INT,
         category="quiz",
-        description="Hours a user must wait after an attempt before retrying the quiz.",
+        description=(
+            "Quiz attempts a user gets per skill inside each attempt window. "
+            "Abandoned and timed-out quizzes count as attempts."
+        ),
         is_public=True,
-        min_value=0,
+        min_value=1,
+    ),
+    ConfigDefinition(
+        key="quiz.attempt_window_hours",
+        default=168,
+        value_type=INT,
+        category="quiz",
+        description=(
+            "Length of the rolling attempt window in hours (168 = one week). Each "
+            "attempt frees up again this long after it was taken."
+        ),
+        is_public=True,
+        min_value=1,
     ),
     ConfigDefinition(
         key="quiz.start_grace_seconds",

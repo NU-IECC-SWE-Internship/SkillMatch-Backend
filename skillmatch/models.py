@@ -195,6 +195,9 @@ class SkillQuizAttempt(models.Model):
     abandoned = models.BooleanField(default=False)
     # One entry per question: text, options, correct_option, selected (None = timed out).
     review = models.JSONField(default=list, blank=True)
+    # Set when an admin resets the user's attempts; the attempt stays in history
+    # but no longer counts toward the weekly limit.
+    excused = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

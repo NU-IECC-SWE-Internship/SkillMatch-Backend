@@ -17,8 +17,39 @@ def quiz_time_limit():
     )
 
 
-def quiz_cooldown():
-    return get_hours("quiz.cooldown_hours")
+def max_attempts():
+    return get_config("quiz.max_attempts")
+
+
+def attempt_window():
+    return get_hours("quiz.attempt_window_hours")
+
+
+def counted_attempt_times(user, skill):
+    """Start times (oldest first) of attempts that count toward the current window."""
+    return list(
+        SkillQuizAttempt.objects
+        .filter(
+            user=user,
+            skill=skill,
+            excused=False,
+            created_at__gt=timezone.now() - attempt_window(),
+        )
+        .order_by("created_at", "id")
+        .values_list("created_at", flat=True)
+    )
+
+
+def attempts_left(user, skill):
+    return max(max_attempts() - len(counted_attempt_times(user, skill)), 0)
+
+
+def reset_attempts(user, skill):
+    """Give the user a full set of attempts again; history is kept."""
+    expire_abandoned_quiz(user, skill)
+    return SkillQuizAttempt.objects.filter(user=user, skill=skill, excused=False).update(
+        excused=True
+    )
 
 
 def start_grace():
@@ -29,7 +60,7 @@ def start_grace():
 def expire_abandoned_quiz(user, skill):
     """
     A pending quiz that was started but never submitted counts as a failed
-    attempt (score 0), which starts the normal cooldown.
+    attempt (score 0) and uses up one of the user's attempts.
     Returns True when an abandoned quiz was converted.
     """
     pending = PendingSkillQuiz.objects.filter(user=user, skill=skill).first()
@@ -83,19 +114,18 @@ def quiz_availability(user, skill, *, is_verified: bool = False):
     """
     Returns (can_take, latest_attempt, available_at).
     Verified skills don't need another quiz.
-    After any attempt, wait the configured cooldown before retrying.
+    Users get `quiz.max_attempts` attempts per rolling window; once they are
+    used up, `available_at` is when the oldest one drops out of the window.
     """
     if is_verified:
         return False, latest_quiz_attempt(user, skill), None
 
     expire_timed_out_quiz(user, skill)
     attempt = latest_quiz_attempt(user, skill)
+    recent = counted_attempt_times(user, skill)
+    limit = max_attempts()
 
-    if attempt is None:
-        return True, None, None
+    if len(recent) < limit:
+        return True, attempt, None
 
-    available_at = attempt.created_at + quiz_cooldown()
-    if timezone.now() >= available_at:
-        return True, attempt, available_at
-
-    return False, attempt, available_at
+    return False, attempt, recent[len(recent) - limit] + attempt_window()

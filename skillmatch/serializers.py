@@ -122,6 +122,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
     can_take_quiz = serializers.SerializerMethodField()
     quiz_available_at = serializers.SerializerMethodField()
     has_quiz_review = serializers.SerializerMethodField()
+    quiz_attempts_left = serializers.SerializerMethodField()
 
     class Meta:
         model = UserSkill
@@ -138,6 +139,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "can_take_quiz",
             "quiz_available_at",
             "has_quiz_review",
+            "quiz_attempts_left",
         ]
         read_only_fields = [
             "id",
@@ -149,6 +151,7 @@ class UserSkillSerializer(serializers.ModelSerializer):
             "can_take_quiz",
             "quiz_available_at",
             "has_quiz_review",
+            "quiz_attempts_left",
         ]
 
     def _availability(self, obj):
@@ -182,6 +185,12 @@ class UserSkillSerializer(serializers.ModelSerializer):
             return False
         from .quiz_policy import latest_submitted_attempt
         return latest_submitted_attempt(obj.user, obj.skill) is not None
+
+    def get_quiz_attempts_left(self, obj):
+        if obj.skill_type != "teach" or obj.is_verified:
+            return None
+        from .quiz_policy import attempts_left
+        return attempts_left(obj.user, obj.skill)
 
     def get_quiz_available_at(self, obj):
         can_take, _attempt, available_at = self._availability(obj)

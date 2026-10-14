@@ -40,12 +40,29 @@ from .quiz_bank import (
 )
 from .quiz_llm import QuizGenerationError
 from .quiz_policy import (
+    attempts_left,
     expire_abandoned_quiz,
     latest_submitted_attempt,
+    max_attempts,
     quiz_availability,
     start_grace,
 )
 from system_config.services import get_config
+
+
+def attempt_limits(user, skill):
+    return {
+        "max_attempts": max_attempts(),
+        "attempts_left": attempts_left(user, skill),
+        "attempt_window_hours": get_config("quiz.attempt_window_hours"),
+    }
+
+
+def out_of_attempts_error():
+    return (
+        f"You've used all {max_attempts()} quiz attempts for this skill this week. "
+        "You can try again once an attempt frees up."
+    )
 
 # Must stay in sync with the suggested skills in the frontend (Profile / onboarding).
 DEFAULT_SKILL_NAMES = {
@@ -274,7 +291,7 @@ class SkillQuizView(APIView):
                 "can_take": can_take,
                 "has_attempt": attempt is not None,
                 "available_at": available_at,
-                "cooldown_hours": get_config("quiz.cooldown_hours"),
+                **attempt_limits(request.user, skill),
                 "attempt": attempt_payload(attempt, include_review=True),
                 "questions": [],
             }
@@ -343,10 +360,7 @@ class SkillQuizStartView(APIView):
                 )
             return Response(
                 {
-                    "error": (
-                        "Quiz cooldown active. You can try again after "
-                        f"{get_config('quiz.cooldown_hours')} hours."
-                    ),
+                    "error": out_of_attempts_error(),
                     "available_at": available_at,
                     "last_score": attempt.score if attempt else None,
                     "attempt": attempt_payload(attempt),
@@ -419,6 +433,7 @@ class SkillQuizReviewView(APIView):
                 "is_verified": is_verified,
                 "can_take": bool(user_skill) and skill.is_approved and can_take,
                 "available_at": None if can_take else available_at,
+                **attempt_limits(request.user, skill),
                 "review": public_review(attempt.review),
             }
         )
@@ -454,10 +469,7 @@ class SkillQuizSubmitView(APIView):
                 )
             return Response(
                 {
-                    "error": (
-                        "Quiz cooldown active. You can try again after "
-                        f"{get_config('quiz.cooldown_hours')} hours."
-                    ),
+                    "error": out_of_attempts_error(),
                     "available_at": available_at,
                 },
                 status=status.HTTP_403_FORBIDDEN,
@@ -514,6 +526,9 @@ class SkillQuizSubmitView(APIView):
             user_skill.is_verified = True
             user_skill.save(update_fields=["is_verified"])
 
+        limits = attempt_limits(request.user, skill)
+        _can_take, _attempt, retry_at = quiz_availability(request.user, skill)
+
         return Response(
             {
                 "score": score,
@@ -521,8 +536,9 @@ class SkillQuizSubmitView(APIView):
                 "passed": passed,
                 "is_verified": user_skill.is_verified,
                 "pass_score": pass_score,
-                "can_retry": not passed,
-                "cooldown_hours": get_config("quiz.cooldown_hours"),
+                **limits,
+                "can_retry": not passed and limits["attempts_left"] > 0,
+                "available_at": None if passed else retry_at,
                 "review": public_review(review),
             }
         )
