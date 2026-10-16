@@ -178,6 +178,17 @@ DEFINITIONS = [
         is_public=True,
         min_value=1,
     ),
+
+    # Meetings
+    ConfigDefinition(
+        key="meetings.cancel_notice_hours",
+        default=2,
+        value_type=INT,
+        category="meetings",
+        description="Minimum hours of advance notice required to cancel a scheduled meeting session.",
+        is_public=True,
+        min_value=0,
+    ),
 ]
 
 REGISTRY = {d.key: d for d in DEFINITIONS}

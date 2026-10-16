@@ -22,6 +22,21 @@ def save_message(sender_id, receiver_id, content):
         receiver=receiver,
         content=content.strip(),
     )
+
+    try:
+        from skillmatch.notifications import create_notification
+        sender_username = message.sender.username
+        preview = message.content if len(message.content) <= 60 else message.content[:57] + "..."
+        create_notification(
+            recipient=receiver,
+            title=f"New message from {sender_username}",
+            message=preview,
+            notification_type="chat_message",
+            link="/chat",
+        )
+    except Exception:
+        pass
+
     return {
         'id': message.id,
         'sender_id': sender_id,
