@@ -20,6 +20,7 @@ from .views import (
     NotificationListView,
     NotificationMarkReadView,
     NotificationMarkAllReadView,
+    PushSubscriptionView,
     AdminSkillQuestionListCreateView,
     AdminSkillQuestionGenerateView,
     AdminQuizQuestionDetailView,
@@ -144,6 +145,11 @@ urlpatterns = [
         "notifications/mark-all-read/",
         NotificationMarkAllReadView.as_view(),
         name="notification-mark-all-read",
+    ),
+    path(
+        "notifications/push-subscribe/",
+        PushSubscriptionView.as_view(),
+        name="notification-push-subscribe",
     ),
 
     path(

@@ -62,6 +62,18 @@ class Meeting(models.Model):
         default="",
     )
 
+    cancellation_reason = models.TextField(blank=True, default="")
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cancelled_meetings",
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    reminder_sent = models.BooleanField(default=False)
+    rating_prompt_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -75,6 +87,20 @@ class Meeting(models.Model):
     @property
     def review_deadline(self):
         return self.end_time + get_hours("reviews.window_hours")
+
+    @property
+    def cancellation_cutoff_time(self):
+        return self.start_time - get_hours("meetings.cancel_notice_hours")
+
+    @property
+    def can_cancel(self):
+        from django.utils import timezone
+        if self.status != "SCHEDULED":
+            return False
+        now = timezone.now()
+        if now >= self.start_time:
+            return False
+        return now <= self.cancellation_cutoff_time
 
     def __str__(self):
         return (

@@ -101,6 +101,11 @@ class MeetingRatingSerializer(serializers.ModelSerializer):
                     recalculate_user_rating(r.reviewed_user_id)
 
             rating.refresh_from_db()
+            from skillmatch.emails import send_reviews_revealed_notification
+            send_reviews_revealed_notification(meeting)
+        else:
+            from skillmatch.emails import send_partner_submitted_review_notification
+            send_partner_submitted_review_notification(meeting, reviewer=user, reviewed_user=reviewed_user)
 
         return rating
 
@@ -145,6 +150,14 @@ class MeetingSerializer(serializers.ModelSerializer):
     user_review = serializers.SerializerMethodField()
     partner_review = serializers.SerializerMethodField()
 
+    # Cancellation Fields
+    can_cancel = serializers.BooleanField(read_only=True)
+    cancellation_reason = serializers.CharField(read_only=True)
+    cancelled_by_username = serializers.CharField(source='cancelled_by.username', read_only=True, default=None)
+    cancelled_at = serializers.DateTimeField(read_only=True)
+    cancellation_cutoff_ts = serializers.SerializerMethodField()
+    cancel_notice_hours = serializers.SerializerMethodField()
+
     class Meta:
         model = Meeting
         fields = [
@@ -177,6 +190,12 @@ class MeetingSerializer(serializers.ModelSerializer):
             'can_review',
             'user_review',
             'partner_review',
+            'can_cancel',
+            'cancellation_reason',
+            'cancelled_by_username',
+            'cancelled_at',
+            'cancellation_cutoff_ts',
+            'cancel_notice_hours',
         ]
 
     def _get_ratings(self, obj):
@@ -292,3 +311,12 @@ class MeetingSerializer(serializers.ModelSerializer):
                         "created_at": r.created_at.isoformat(),
                     }
         return None
+
+    def get_cancellation_cutoff_ts(self, obj):
+        cutoff = obj.cancellation_cutoff_time
+        return int(cutoff.timestamp() * 1000)
+
+    def get_cancel_notice_hours(self, obj):
+        from system_config.services import get_config
+        return get_config("meetings.cancel_notice_hours")
+

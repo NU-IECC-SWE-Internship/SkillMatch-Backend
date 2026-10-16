@@ -38,6 +38,7 @@ def process_expired_ratings():
     cutoff = now - get_hours("reviews.window_hours")
     affected_user_ids = set()
     unrevealed_meetings = Meeting.objects.filter(ratings__is_revealed=False).distinct()
+    revealed_count = 0
     for m in unrevealed_meetings:
         ratings = list(MeetingRating.objects.filter(meeting_id=m.id))
         if len(ratings) >= 2 or (m.end_time and m.end_time <= cutoff):
@@ -48,9 +49,17 @@ def process_expired_ratings():
                 )
                 for r in ratings:
                     affected_user_ids.add(r.reviewed_user_id)
+            revealed_count += 1
+            try:
+                from skillmatch.emails import send_reviews_revealed_notification
+                send_reviews_revealed_notification(m)
+            except Exception as notif_err:
+                pass
 
     for uid in affected_user_ids:
         recalculate_user_rating(uid)
+
+    return revealed_count
 
 def create_meeting_for_match_request(
     match_request,
@@ -389,11 +398,17 @@ class SingleMeetingDetailView(APIView):
             new_status = new_status.upper()
             if new_status not in dict(Meeting.STATUS_CHOICES):
                 return Response({"error": f"Invalid status '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+            if new_status == "CANCELLED":
+                return Response(
+                    {"error": "Please cancel the meeting using the cancellation endpoint and provide a reason."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if meeting.status == "CANCELLED":
                 return Response({"error": "Cannot change status of a cancelled meeting."}, status=status.HTTP_400_BAD_REQUEST)
             meeting.status = new_status
             meeting.save(update_fields=['status'])
         return Response(MeetingSerializer(meeting, context={'request': request}).data, status=status.HTTP_200_OK)
+
     def delete(self, request, pk):
         try:
             meeting = Meeting.objects.select_related(
@@ -403,14 +418,50 @@ class SingleMeetingDetailView(APIView):
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
         if request.user not in (meeting.request.sender, meeting.request.receiver):
             return Response({"error": "You do not have permission to cancel this meeting."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Rule 1: Status & Lifecycle integrity
+        if meeting.status == "CANCELLED":
+            return Response({"error": "This meeting has already been cancelled."}, status=status.HTTP_400_BAD_REQUEST)
+        if meeting.status in ["COMPLETED", "MISSED"]:
+            return Response({"error": f"Cannot cancel a {meeting.status.lower()} meeting."}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        if now >= meeting.start_time:
+            return Response({"error": "Cannot cancel a meeting that has already started or concluded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Rule 2: Advance notice window
+        from system_config.services import get_config, get_hours
+        notice_delta = get_hours("meetings.cancel_notice_hours")
+        notice_hours = get_config("meetings.cancel_notice_hours")
+        if now > (meeting.start_time - notice_delta):
+            return Response(
+                {"error": f"Meetings cannot be cancelled within {notice_hours} hours of the scheduled start time."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Rule 3: Mandatory reason
+        reason = (request.data.get("reason") or request.query_params.get("reason") or "").strip()
+        if not reason:
+            return Response(
+                {"error": "A reason is required to cancel this meeting."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         meeting.status = "CANCELLED"
-        meeting.save(update_fields=['status'])
+        meeting.cancellation_reason = reason
+        meeting.cancelled_by = request.user
+        meeting.cancelled_at = now
+        meeting.save(update_fields=["status", "cancellation_reason", "cancelled_by", "cancelled_at"])
+
         meeting.request.status = "CANCELLED"
-        meeting.request.save(update_fields=['status'])
+        meeting.request.save(update_fields=["status"])
 
-        send_meeting_cancelled_email(meeting, cancelled_by=request.user)
+        send_meeting_cancelled_email(meeting, cancelled_by=request.user, reason=reason)
 
-        return Response({"message": "Meeting cancelled successfully."}, status=status.HTTP_200_OK)
+        return Response({
+            "message": "Meeting cancelled successfully.",
+            "meeting": MeetingSerializer(meeting, context={'request': request}).data,
+        }, status=status.HTTP_200_OK)
 class MeetingReviewsView(APIView):
     permission_classes = [IsAuthenticated]
     def _get_meeting(self, pk, user):

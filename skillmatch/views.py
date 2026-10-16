@@ -7,6 +7,8 @@ from django.db.models import Count, ProtectedError, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from django.conf import settings
+
 from .models import (
     Profile,
     Skill,
@@ -16,6 +18,7 @@ from .models import (
     PendingSkillQuiz,
     Notification,
     SkillQuizQuestion,
+    PushSubscription,
 )
 
 from .serializers import (
@@ -142,6 +145,18 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        try:
+            from .notifications import create_notification
+            create_notification(
+                recipient=user,
+                title="Welcome to SkillMatch! 👋",
+                message="Start by adding skills you want to teach and learn on your profile to discover matching peers.",
+                notification_type="welcome",
+                link="/profile",
+            )
+        except Exception:
+            pass
 
         # Same token type login uses (SimpleJWT), issued here directly
         refresh = RefreshToken.for_user(user)
@@ -525,6 +540,17 @@ class SkillQuizSubmitView(APIView):
         if passed:
             user_skill.is_verified = True
             user_skill.save(update_fields=["is_verified"])
+            try:
+                from .notifications import create_notification
+                create_notification(
+                    recipient=request.user,
+                    title=f"Skill Verified: {skill.name}! 🌟",
+                    message=f"Congratulations! You passed the verification quiz ({score}/{len(questions)}). Your profile now displays the Verified badge!",
+                    notification_type="skill_verified",
+                    link="/profile",
+                )
+            except Exception:
+                pass
 
         limits = attempt_limits(request.user, skill)
         _can_take, _attempt, retry_at = quiz_availability(request.user, skill)
@@ -706,6 +732,11 @@ class AdminSkillApproveView(APIView):
         if not skill.is_approved:
             skill.is_approved = True
             skill.save(update_fields=["is_approved"])
+            try:
+                from .emails import send_skill_approved_notification
+                send_skill_approved_notification(skill)
+            except Exception as notif_err:
+                pass
         return Response(
             AdminSkillSerializer(admin_skill_queryset().get(pk=pk)).data
         )
@@ -723,8 +754,16 @@ class AdminSkillDenyView(APIView):
                 {"error": "Only pending skills can be denied."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        creator = skill.created_by
+        skill_name = skill.name
         try:
             skill.delete()
+            if creator:
+                try:
+                    from .emails import send_skill_rejected_notification
+                    send_skill_rejected_notification(skill_name, creator)
+                except Exception as notif_err:
+                    pass
         except ProtectedError:
             return Response(
                 {"error": "This skill is used by existing requests and can't be removed."},
@@ -879,4 +918,46 @@ class NotificationMarkAllReadView(APIView):
         except Exception:
             pass
         return Response({"success": True})
+
+
+class PushSubscriptionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        """Returns the public VAPID key so frontend can encrypt push subscriptions."""
+        public_key = getattr(settings, "VAPID_PUBLIC_KEY", "")
+        return Response({"public_key": public_key})
+
+    def post(self, request):
+        """Save or update user's WebPush subscription."""
+        endpoint = request.data.get("endpoint")
+        keys = request.data.get("keys", {})
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
+
+        if not endpoint or not p256dh or not auth:
+            return Response(
+                {"error": "Missing required subscription data: endpoint, keys.p256dh, and keys.auth are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={
+                "user": request.user,
+                "p256dh": p256dh,
+                "auth": auth,
+            },
+        )
+        return Response({"status": "subscribed"}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        """Unsubscribe device from push notifications."""
+        endpoint = request.data.get("endpoint")
+        if endpoint:
+            PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+        else:
+            PushSubscription.objects.filter(user=request.user).delete()
+        return Response({"status": "unsubscribed"})
+
 

@@ -640,3 +640,66 @@ class AdminUsersApiTests(TestCase):
         self.assertEqual(self.client.delete(url).status_code, 200)
         self.assertFalse(Skill.objects.filter(pk=python.id).exists())
         self.assertFalse(UserSkill.objects.filter(user=self.omar).exists())
+
+
+class NewNotificationTriggersTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_register_creates_welcome_notification(self):
+        from skillmatch.models import Notification
+        payload = {
+            "username": "brandnewuser",
+            "email": "newuser@example.com",
+            "password": "Password123!",
+            "confirm_password": "Password123!",
+        }
+        response = self.client.post("/api/auth/register/", data=payload, format="json")
+        self.assertEqual(response.status_code, 201)
+
+        user = User.objects.get(username="brandnewuser")
+        notif = Notification.objects.filter(recipient=user, notification_type="welcome").first()
+        self.assertIsNotNone(notif)
+        self.assertIn("Welcome", notif.title)
+        self.assertEqual(notif.link, "/profile")
+
+    def test_pass_quiz_creates_skill_verified_notification(self):
+        from skillmatch.models import Notification
+        user = User.objects.create_user(username="quiztaker", password="password123")
+        skill = Skill.objects.create(name="FastAPI", is_approved=True)
+        user_skill = UserSkill.objects.create(user=user, skill=skill, skill_type="teach", is_verified=False)
+
+        # Create pending quiz
+        questions = [
+            {
+                "order": i,
+                "question_text": f"Question {i}?",
+                "option_a": "A",
+                "option_b": "B",
+                "option_c": "C",
+                "option_d": "D",
+                "correct_option": "A",
+            }
+            for i in range(1, 11)
+        ]
+        PendingSkillQuiz.objects.create(user=user, skill=skill, questions=questions)
+
+        self.client.force_authenticate(user=user)
+        answers = [{"question_id": i, "selected": "A"} for i in range(1, 11)]
+        response = self.client.post(
+            f"/api/skills/{skill.id}/quiz/submit/",
+            data={"answers": answers},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["passed"])
+
+        user_skill.refresh_from_db()
+        self.assertTrue(user_skill.is_verified)
+
+        notif = Notification.objects.filter(recipient=user, notification_type="skill_verified").first()
+        self.assertIsNotNone(notif)
+        self.assertIn("Skill Verified", notif.title)
+        self.assertIn("FastAPI", notif.title)
+        self.assertEqual(notif.link, "/profile")
+

@@ -242,11 +242,25 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
-CELERY_TASK_TIMEZONE = TIME_ZONE
-CELERY_BEAT_SCHEDULE = {}
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
+CELERY_BEAT_SCHEDULE = {
+    "send-upcoming-meeting-reminders-every-5-mins": {
+        "task": "meetings.tasks.send_upcoming_meeting_reminders_task",
+        "schedule": 300.0,  # runs every 5 minutes
+    },
+    "complete-concluded-meetings-every-5-mins": {
+        "task": "meetings.tasks.complete_concluded_meetings_and_prompt_ratings_task",
+        "schedule": 300.0,  # runs every 5 minutes
+    },
+    "process-expired-ratings-every-15-mins": {
+        "task": "meetings.tasks.process_expired_ratings_task",
+        "schedule": 900.0,  # runs every 15 minutes
+    },
+}
 CELERY_BROKER_CONNECTION_TIMEOUT = 1.0
 CELERY_BROKER_TRANSPORT_OPTIONS = {
     'max_retries': 0,
 }
 
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY_PATH = os.path.join(BASE_DIR, os.getenv("VAPID_PRIVATE_KEY_PATH", "private_key.pem"))
+VAPID_ADMIN_EMAIL = os.getenv("VAPID_ADMIN_EMAIL", "mailto:admin@skillmatch.com")

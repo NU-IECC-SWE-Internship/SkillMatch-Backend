@@ -12,6 +12,13 @@
     <p style="margin: 0;"><strong>Scheduled Time:</strong> {{ scheduled_time }}</p>
   </div>
 
+  {% if cancellation_reason %}
+  <div style="margin: 16px 0; padding: 12px 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px;">
+    <p style="margin: 0; font-size: 13px; font-weight: 700; color: #991b1b; text-transform: uppercase; letter-spacing: 0.05em;">Reason for Cancellation:</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #7f1d1d; line-height: 1.45;">"{{ cancellation_reason }}"</p>
+  </div>
+  {% endif %}
+
   <div class="btn-container">
     <a href="{{ site_url }}/meetings" class="btn">View Meetings Dashboard</a>
   </div>

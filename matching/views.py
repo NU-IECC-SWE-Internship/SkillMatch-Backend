@@ -612,6 +612,16 @@ def respond_to_request(request, pk):
             ]
         )
 
+        from skillmatch.notifications import create_notification
+        ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
+        create_notification(
+            recipient=match_req.sender,
+            title=f"Return Session Proposed by {match_req.receiver.username} 📅",
+            message=f"{match_req.receiver.username} proposed a time for your return session for {ret_skill_name}.",
+            notification_type="return_session_proposed",
+            link="/my-requests",
+        )
+
         return Response(
             {
                 "message": "Return session time proposed. Waiting for sender confirmation.",
@@ -663,6 +673,16 @@ def respond_to_request(request, pk):
         match_req.status = "ACCEPTED"
         match_req.save(update_fields=["status"])
 
+        from skillmatch.notifications import create_notification
+        ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
+        create_notification(
+            recipient=match_req.receiver,
+            title=f"Return Session Confirmed by {match_req.sender.username}! 🎉",
+            message=f"{match_req.sender.username} confirmed the return session for {ret_skill_name}. Your meeting is scheduled!",
+            notification_type="return_session_confirmed",
+            link="/meetings",
+        )
+
         return Response(
             {
                 "message": "Return session confirmed successfully.",
@@ -695,6 +715,16 @@ def respond_to_request(request, pk):
                 "receiver_requested_end_time",
                 "status",
             ]
+        )
+
+        from skillmatch.notifications import create_notification
+        ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
+        create_notification(
+            recipient=match_req.receiver,
+            title="Return Session Time Declined 🔄",
+            message=f"{match_req.sender.username} declined the proposed time for {ret_skill_name}. Please propose a different slot.",
+            notification_type="return_session_declined",
+            link="/requests",
         )
 
         return Response(

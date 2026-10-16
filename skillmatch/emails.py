@@ -155,7 +155,7 @@ def send_match_request_rejected_email(match_request):
     )
 
 
-def send_meeting_cancelled_email(meeting, cancelled_by):
+def send_meeting_cancelled_email(meeting, cancelled_by, reason: str = ""):
     request_obj = getattr(meeting, 'request', None)
     if not request_obj:
         return
@@ -168,11 +168,16 @@ def send_meeting_cancelled_email(meeting, cancelled_by):
 
     skill_name = request_obj.skill.name if request_obj.skill else "Skill Session"
 
+    reason_clean = (reason or getattr(meeting, 'cancellation_reason', '') or '').strip()
+    msg = f"Your session with {cancelled_by.username} was cancelled."
+    if reason_clean:
+        msg = f"Your session with {cancelled_by.username} was cancelled. Reason: {reason_clean}"
+
     # Always create an in-app notification
     create_notification(
         recipient=recipient,
         title=f"Meeting Cancelled: {skill_name} ⚠️",
-        message=f"Your session with {cancelled_by.username} was cancelled.",
+        message=msg,
         notification_type="meeting_cancelled",
         link="/meetings",
     )
@@ -187,6 +192,7 @@ def send_meeting_cancelled_email(meeting, cancelled_by):
         "cancelled_by": {"username": cancelled_by.username},
         "skill_name": skill_name,
         "scheduled_time": scheduled_time,
+        "cancellation_reason": reason_clean,
     }
 
     _send_async_rendered_email(
@@ -195,3 +201,115 @@ def send_meeting_cancelled_email(meeting, cancelled_by):
         context=context,
         recipient_list=[recipient.email],
     )
+
+
+def send_session_ended_rating_prompt(meeting):
+    """Notify participants when a meeting ends to prompt them for feedback."""
+    request_obj = getattr(meeting, 'request', None)
+    if not request_obj:
+        return
+
+    sender = request_obj.sender
+    receiver = request_obj.receiver
+    skill_name = request_obj.skill.name if request_obj.skill else "Skill Exchange"
+
+    from meetings.models import MeetingRating
+
+    for user, partner in [(sender, receiver), (receiver, sender)]:
+        if not MeetingRating.objects.filter(meeting=meeting, reviewer=user).exists():
+            create_notification(
+                recipient=user,
+                title=f"How was your swap with {partner.username}? ⭐",
+                message=f"Your {skill_name} session has ended. Rate your experience to share feedback!",
+                notification_type="rating_prompt",
+                link="/meetings",
+            )
+
+
+def send_partner_submitted_review_notification(meeting, reviewer, reviewed_user):
+    """Notify the user when their partner submits a review in the double-blind window."""
+    request_obj = getattr(meeting, 'request', None)
+    skill_name = request_obj.skill.name if request_obj and request_obj.skill else "Skill Exchange"
+
+    create_notification(
+        recipient=reviewed_user,
+        title=f"{reviewer.username} reviewed your session! 📝",
+        message=f"{reviewer.username} left feedback for {skill_name}. Leave your review to unlock it!",
+        notification_type="partner_reviewed",
+        link="/meetings",
+    )
+
+
+def send_reviews_revealed_notification(meeting):
+    """Notify both participants when mutual reviews or 48h deadline reveal ratings."""
+    request_obj = getattr(meeting, 'request', None)
+    if not request_obj:
+        return
+
+    sender = request_obj.sender
+    receiver = request_obj.receiver
+    skill_name = request_obj.skill.name if request_obj.skill else "Skill Exchange"
+
+    for user, partner in [(sender, receiver), (receiver, sender)]:
+        create_notification(
+            recipient=user,
+            title="Reviews Revealed! ✨",
+            message=f"Feedback from your session with {partner.username} is now live!",
+            notification_type="reviews_revealed",
+            link="/meetings",
+        )
+
+        if should_send_email_to(user):
+            context = {
+                "recipient": {"username": user.username},
+                "partner": {"username": partner.username},
+                "skill_name": skill_name,
+            }
+            _send_async_rendered_email(
+                subject=f"✨ Reviews Revealed for your swap with {partner.username}!",
+                template_name="emails/reviews_revealed.html",
+                context=context,
+                recipient_list=[user.email],
+            )
+
+
+def send_skill_approved_notification(skill):
+    """Notify the user when an admin approves their custom skill request."""
+    creator = skill.created_by
+    if not creator:
+        return
+
+    create_notification(
+        recipient=creator,
+        title=f"Skill Approved: '{skill.name}' 🎉",
+        message=f"An administrator approved '{skill.name}'. It is now visible on your profile and available for swaps!",
+        notification_type="skill_approved",
+        link="/profile",
+    )
+
+    if should_send_email_to(creator):
+        context = {
+            "recipient": {"username": creator.username},
+            "skill_name": skill.name,
+        }
+        _send_async_rendered_email(
+            subject=f"🎉 Your custom skill '{skill.name}' was approved!",
+            template_name="emails/skill_approved.html",
+            context=context,
+            recipient_list=[creator.email],
+        )
+
+
+def send_skill_rejected_notification(skill_name: str, creator):
+    """Notify the user if an admin rejects their custom skill request."""
+    if not creator:
+        return
+
+    create_notification(
+        recipient=creator,
+        title=f"Skill Request Update: '{skill_name}'",
+        message=f"Your custom skill request for '{skill_name}' was reviewed and not approved at this time.",
+        notification_type="skill_rejected",
+        link="/profile",
+    )
+
