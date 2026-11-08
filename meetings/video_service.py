@@ -11,13 +11,21 @@ class DailyVideoService:
         }
         self.base_url = "https://api.daily.co/v1"
 
+    def _time_window(self, start_timestamp, end_timestamp):
+        """Usable from 15 min before start until 30 min after end (unless disabled for testing)."""
+        if getattr(settings, 'MEETINGS_NO_TIME_LIMIT', False):
+            return {}
+        return {
+            "nbf": start_timestamp - 900,
+            "exp": end_timestamp + 1800,
+        }
+
     def create_scheduled_room(self, start_timestamp, end_timestamp):
         payload = {
             "privacy": "private",
             "properties": {
                 "max_participants": 2,
-                "nbf": start_timestamp - 900,
-                "exp": end_timestamp + 1800,
+                **self._time_window(start_timestamp, end_timestamp),
                 "enable_screenshare": True,
             }
         }
@@ -31,8 +39,7 @@ class DailyVideoService:
                 "room_name": room_name,
                 "user_name": user_name,
                 "is_owner": False,
-                "nbf": start_timestamp - 900,
-                "exp": end_timestamp + 1800,
+                **self._time_window(start_timestamp, end_timestamp),
             }
         }
         response = requests.post(f"{self.base_url}/meeting-tokens", headers=self.headers, json=payload)

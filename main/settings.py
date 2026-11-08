@@ -25,6 +25,8 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-change-me-in-env")
 DAILY_API_KEY = os.environ.get("DAILY_API_KEY", "")
+# Testing only: video rooms open immediately and never expire.
+MEETINGS_NO_TIME_LIMIT = os.environ.get("MEETINGS_NO_TIME_LIMIT", "False").lower() in ("true", "1", "t")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 

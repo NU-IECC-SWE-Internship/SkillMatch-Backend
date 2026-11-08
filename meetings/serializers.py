@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from .models import Meeting, MeetingRating
@@ -158,6 +159,9 @@ class MeetingSerializer(serializers.ModelSerializer):
     cancellation_cutoff_ts = serializers.SerializerMethodField()
     cancel_notice_hours = serializers.SerializerMethodField()
 
+    # Testing switch: lets the frontend show Join at any time.
+    no_time_limit = serializers.SerializerMethodField()
+
     class Meta:
         model = Meeting
         fields = [
@@ -196,6 +200,7 @@ class MeetingSerializer(serializers.ModelSerializer):
             'cancelled_at',
             'cancellation_cutoff_ts',
             'cancel_notice_hours',
+            'no_time_limit',
         ]
 
     def _get_ratings(self, obj):
@@ -238,6 +243,9 @@ class MeetingSerializer(serializers.ModelSerializer):
 
     def get_end_time_ts(self, obj):
         return int(obj.end_time.timestamp() * 1000)
+
+    def get_no_time_limit(self, obj):
+        return getattr(settings, 'MEETINGS_NO_TIME_LIMIT', False)
 
     def get_has_user_rated(self, obj):
         user = self.context.get('request').user if self.context.get('request') else None
