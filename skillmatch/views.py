@@ -150,7 +150,7 @@ class RegisterView(generics.CreateAPIView):
             from .notifications import create_notification
             create_notification(
                 recipient=user,
-                title="Welcome to SkillMatch! 👋",
+                title="Welcome to SkillMatch!",
                 message="Start by adding skills you want to teach and learn on your profile to discover matching peers.",
                 notification_type="welcome",
                 link="/profile",
@@ -544,7 +544,7 @@ class SkillQuizSubmitView(APIView):
                 from .notifications import create_notification
                 create_notification(
                     recipient=request.user,
-                    title=f"Skill Verified: {skill.name}! 🌟",
+                    title=f"Skill Verified: {skill.name}!",
                     message=f"Congratulations! You passed the verification quiz ({score}/{len(questions)}). Your profile now displays the Verified badge!",
                     notification_type="skill_verified",
                     link="/profile",
@@ -663,6 +663,18 @@ class UserSessionSettingsView(APIView):
             for meeting in booked_meetings
         ]
 
+        # Weekly times already requested from/by this user (open requests).
+        from matching.busy import requested_times
+
+        taken_times = [
+            {
+                "day": day,
+                "start_time": start.strftime("%H:%M"),
+                "end_time": end.strftime("%H:%M"),
+            }
+            for day, start, end in requested_times(user)
+        ]
+
         return Response(
             {
                 "user": user.id,
@@ -676,6 +688,9 @@ class UserSessionSettingsView(APIView):
 
                 "busy_intervals":
                     busy_intervals,
+
+                "requested_times":
+                    taken_times,
             }
         )
 class AvailabilityUpdateDeleteView(

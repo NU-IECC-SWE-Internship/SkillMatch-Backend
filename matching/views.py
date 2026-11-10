@@ -1,3 +1,4 @@
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -340,19 +341,8 @@ def respond_to_request(request, pk):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            receiver_wants_skill = UserSkill.objects.filter(
-                user=match_req.receiver,
-                skill=receiver_skill,
-                skill_type="learn",
-            ).exists()
-
-            if not receiver_wants_skill:
-                return Response(
-                    {
-                        "error": "The selected return skill is not in your learning list."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            # Any skill the requester teaches may be chosen; it doesn't have to be
+            # on the receiver's learning list already.
 
         if receiver_skill and schedule_mode not in ("now", "later"):
             return Response(
@@ -616,7 +606,7 @@ def respond_to_request(request, pk):
         ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
         create_notification(
             recipient=match_req.sender,
-            title=f"Return Session Proposed by {match_req.receiver.username} 📅",
+            title=f"Return Session Proposed by {match_req.receiver.username}",
             message=f"{match_req.receiver.username} proposed a time for your return session for {ret_skill_name}.",
             notification_type="return_session_proposed",
             link="/my-requests",
@@ -677,7 +667,7 @@ def respond_to_request(request, pk):
         ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
         create_notification(
             recipient=match_req.receiver,
-            title=f"Return Session Confirmed by {match_req.sender.username}! 🎉",
+            title=f"Return Session Confirmed by {match_req.sender.username}!",
             message=f"{match_req.sender.username} confirmed the return session for {ret_skill_name}. Your meeting is scheduled!",
             notification_type="return_session_confirmed",
             link="/meetings",
@@ -721,7 +711,7 @@ def respond_to_request(request, pk):
         ret_skill_name = match_req.receiver_skill.name if match_req.receiver_skill else "Return Skill"
         create_notification(
             recipient=match_req.receiver,
-            title="Return Session Time Declined 🔄",
+            title="Return Session Time Declined",
             message=f"{match_req.sender.username} declined the proposed time for {ret_skill_name}. Please propose a different slot.",
             notification_type="return_session_declined",
             link="/requests",
@@ -791,6 +781,17 @@ def get_sent_requests(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_teachers(request):
+    """
+    People who teach, for Browse Skills.
+
+      ?skill=<id>  teachers of that skill (any skill, not only ones you want)
+      ?skill=all   everyone who teaches something
+      (no param)   teachers of the skills you want to learn
+
+    Each teacher lists ALL the skills they teach; `wanted` marks the ones you
+    want to learn (listed first). `all_skills` is every skill someone else
+    teaches, for the filter.
+    """
     user = request.user
 
     my_learning_skills = approved_user_skills().filter(
@@ -798,30 +799,44 @@ def get_teachers(request):
         skill_type="learn"
     ).select_related("skill")
 
-    learning_skill_ids = [
+    learning_skill_ids = {
         user_skill.skill_id
         for user_skill in my_learning_skills
-    ]
+    }
 
-    skill_id = request.query_params.get("skill")
+    others_teaching = approved_user_skills().filter(
+        skill_type="teach"
+    ).exclude(user=user)
 
-    teaching_skills = approved_user_skills().filter(
-        skill_type="teach",
-        skill_id__in=learning_skill_ids
-    ).select_related("user__profile", "skill")
+    skill_param = request.query_params.get("skill")
 
-    if skill_id:
-        teaching_skills = teaching_skills.filter(
-            skill_id=skill_id
-        )
+    if skill_param == "all":
+        teacher_ids = others_teaching.values("user_id")
+    elif skill_param:
+        try:
+            skill_id = int(skill_param)
+        except ValueError:
+            return Response(
+                {"error": "skill must be a skill id or 'all'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        teacher_ids = others_teaching.filter(skill_id=skill_id).values("user_id")
+    else:
+        teacher_ids = others_teaching.filter(
+            skill_id__in=learning_skill_ids
+        ).values("user_id")
+
+    teaching_skills = (
+        others_teaching
+        .filter(user_id__in=teacher_ids)
+        .select_related("user__profile", "skill")
+        .order_by("user_id", "skill__name")
+    )
 
     teachers = {}
 
     for user_skill in teaching_skills:
         teacher = user_skill.user
-
-        if teacher.id == user.id:
-            continue
 
         if teacher.id not in teachers:
             profile = getattr(teacher, "profile", None)
@@ -837,7 +852,37 @@ def get_teachers(request):
             "id": user_skill.skill.id,
             "name": user_skill.skill.name,
             "is_verified": user_skill.is_verified,
+            "wanted": user_skill.skill_id in learning_skill_ids,
         })
+
+    for teacher in teachers.values():
+        # Skills you want first (sort is stable, so names stay alphabetical).
+        teacher["skills"].sort(key=lambda skill: not skill["wanted"])
+
+    # People teaching more of what you want come first.
+    ordered_teachers = sorted(
+        teachers.values(),
+        key=lambda teacher: (
+            -sum(skill["wanted"] for skill in teacher["skills"]),
+            teacher["username"].lower(),
+        ),
+    )
+
+    # Every approved skill, with how many other people teach it (can be 0).
+    teacher_counts = dict(
+        others_teaching
+        .values("skill_id")
+        .annotate(n=Count("user", distinct=True))
+        .values_list("skill_id", "n")
+    )
+    all_skills = [
+        {
+            "skill_id": skill.id,
+            "skill__name": skill.name,
+            "teacher_count": teacher_counts.get(skill.id, 0),
+        }
+        for skill in Skill.objects.filter(is_approved=True).order_by("name")
+    ]
 
     return Response({
         "learning_skills": [
@@ -847,5 +892,14 @@ def get_teachers(request):
             }
             for user_skill in my_learning_skills
         ],
-        "teachers": list(teachers.values())
+        "all_skills": [
+            {
+                "id": row["skill_id"],
+                "name": row["skill__name"],
+                "teacher_count": row["teacher_count"],
+                "wanted": row["skill_id"] in learning_skill_ids,
+            }
+            for row in all_skills
+        ],
+        "teachers": ordered_teachers,
     })

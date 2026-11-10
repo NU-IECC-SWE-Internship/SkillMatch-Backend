@@ -16,7 +16,7 @@ class ProcessExpiredRatingsTaskTest(TestCase):
         self.user_a = User.objects.create_user(username="user_a", password="password123")
         self.user_b = User.objects.create_user(username="user_b", password="password123")
 
-        self.skill = Skill.objects.create(name="Python", is_approved=True)
+        self.skill = Skill.objects.get_or_create(name="Python", defaults={"is_approved": True})[0]
         self.slot = AvailabilitySlot.objects.create(
             user=self.user_b,
             day="Monday",
@@ -209,7 +209,7 @@ class MeetingCancellationRulesTest(TestCase):
         self.user_b = User.objects.create_user(username="canceller_b", password="password123")
         self.stranger = User.objects.create_user(username="stranger", password="password123")
 
-        self.skill = Skill.objects.create(name="Django", is_approved=True)
+        self.skill = Skill.objects.get_or_create(name="Django", defaults={"is_approved": True})[0]
         self.slot = AvailabilitySlot.objects.create(
             user=self.user_b,
             day="Tuesday",

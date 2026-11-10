@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .busy import overlaps, requested_times
 from .models import MatchRequest
 from skillmatch.models import UserSkill
 
@@ -159,6 +160,8 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         ]
 
     def get_sender_teach_skills(self, obj):
+        """Everything the sender teaches (the receiver may pick any as a return skill).
+        `wanted` marks skills on the receiver's learning list; those come first."""
         receiver_learn_skill_ids = set(
             UserSkill.objects.filter(
                 user=obj.receiver,
@@ -170,21 +173,24 @@ class MatchRequestSerializer(serializers.ModelSerializer):
             UserSkill.objects.filter(
                 user=obj.sender,
                 skill_type="teach",
-                skill_id__in=receiver_learn_skill_ids,
                 skill__is_approved=True,
             )
             .select_related("skill")
             .order_by("skill__name")
         )
 
-        return [
+        skills = [
             {
                 "id": item.skill_id,
                 "name": item.skill.name,
                 "is_verified": item.is_verified,
+                "wanted": item.skill_id in receiver_learn_skill_ids,
             }
             for item in user_skills
         ]
+        # Wanted first; the sort is stable so names stay alphabetical.
+        skills.sort(key=lambda skill: not skill["wanted"])
+        return skills
 
     def get_receiver_selected_slot_day(self, obj):
         if not obj.receiver_selected_slot:
@@ -264,6 +270,21 @@ class MatchRequestSerializer(serializers.ModelSerializer):
         if slot.user_id != receiver.id:
             raise serializers.ValidationError(
                 {"selected_slot": "The chosen slot does not belong to the receiver."}
+            )
+
+        # A time that's already requested can't be requested again: not from this
+        # person by anyone, and not by you with anyone else at the same time.
+        start = attrs.get("requested_start_time") or slot.start_time
+        end = attrs.get("requested_end_time") or slot.end_time
+
+        if overlaps(slot.day, start, end, requested_times(receiver)):
+            raise serializers.ValidationError(
+                {"requested_start_time": "This time has already been requested. Please pick another time."}
+            )
+
+        if sender and overlaps(slot.day, start, end, requested_times(sender)):
+            raise serializers.ValidationError(
+                {"requested_start_time": "You already have a request at this time. Please pick another time."}
             )
 
         return attrs

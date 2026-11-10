@@ -71,7 +71,7 @@ def make_questions(skill, cycle, n, difficulty="medium"):
 @patch("skillmatch.quiz_bank.generate_quiz_questions", side_effect=fake_generate)
 class QuestionBankTests(TestCase):
     def setUp(self):
-        self.skill = Skill.objects.create(name="Python")
+        self.skill = Skill.objects.get_or_create(name="Python")[0]
 
     def test_top_up_adds_one_batch_per_day(self, mock_gen):
         self.assertEqual(top_up_skill(self.skill), daily_batch())
@@ -166,7 +166,7 @@ QUESTION_INPUT = {
 
 class AdminQuestionBankApiTests(TestCase):
     def setUp(self):
-        self.skill = Skill.objects.create(name="Python")
+        self.skill = Skill.objects.get_or_create(name="Python")[0]
         self.client = APIClient()
         self.admin = User.objects.create_user("admin", password="x", is_staff=True)
         self.client.force_authenticate(self.admin)
@@ -266,7 +266,7 @@ class QuizLlmTests(TestCase):
 class AbandonedQuizTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("omar", password="x")
-        self.skill = Skill.objects.create(name="Django")
+        self.skill = Skill.objects.get_or_create(name="Django")[0]
         UserSkill.objects.create(user=self.user, skill=self.skill, skill_type="teach")
 
     def start_quiz(self, minutes_ago):
@@ -347,7 +347,7 @@ class QuizReviewTests(TestCase):
         clear_cache()
         self.client = APIClient()
         self.user = User.objects.create_user("learner", password="x")
-        self.skill = Skill.objects.create(name="Python")
+        self.skill = Skill.objects.get_or_create(name="Python")[0]
         UserSkill.objects.create(user=self.user, skill=self.skill, skill_type="teach")
         PendingSkillQuiz.objects.create(
             user=self.user,
@@ -447,7 +447,7 @@ class AdminUsersApiTests(TestCase):
             "omarali", email="omar@example.com", password="x", first_name="Omar", last_name="Ali"
         )
         self.peter = User.objects.create_user("peteryakoub", password="x")
-        skill = Skill.objects.create(name="Python")
+        skill = Skill.objects.get_or_create(name="Python")[0]
         UserSkill.objects.create(user=self.omar, skill=skill, skill_type="teach", is_verified=True)
         self.client.force_authenticate(self.admin)
 
@@ -591,7 +591,7 @@ class AdminUsersApiTests(TestCase):
         )
 
     def test_manage_user_skills(self):
-        django = Skill.objects.create(name="Django")
+        django = Skill.objects.get_or_create(name="Django")[0]
         response = self.client.post(
             f"/api/admin/users/{self.peter.id}/skills/",
             {"skill_id": django.id, "skill_type": "teach"},
@@ -616,7 +616,7 @@ class AdminUsersApiTests(TestCase):
         self.assertEqual(data["skills"], [])
 
     def test_reset_quiz_attempts(self):
-        django = Skill.objects.create(name="Django")
+        django = Skill.objects.get_or_create(name="Django")[0]
         user_skill = UserSkill.objects.create(user=self.peter, skill=django, skill_type="teach")
         for _ in range(5):
             SkillQuizAttempt.objects.create(user=self.peter, skill=django, score=2, passed=False)
@@ -630,7 +630,7 @@ class AdminUsersApiTests(TestCase):
 
     def test_rename_and_delete_skill(self):
         python = Skill.objects.get(name="Python")
-        Skill.objects.create(name="Django")
+        Skill.objects.get_or_create(name="Django")[0]
         url = f"/api/admin/skills/{python.id}/"
 
         self.assertEqual(self.client.patch(url, {"name": "django"}, format="json").status_code, 400)
@@ -666,7 +666,7 @@ class NewNotificationTriggersTest(TestCase):
     def test_pass_quiz_creates_skill_verified_notification(self):
         from skillmatch.models import Notification
         user = User.objects.create_user(username="quiztaker", password="password123")
-        skill = Skill.objects.create(name="FastAPI", is_approved=True)
+        skill = Skill.objects.get_or_create(name="FastAPI", defaults={"is_approved": True})[0]
         user_skill = UserSkill.objects.create(user=user, skill=skill, skill_type="teach", is_verified=False)
 
         # Create pending quiz

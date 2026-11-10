@@ -94,7 +94,7 @@ def send_match_request_accepted_email(match_request, meeting=None):
     # Always create an in-app notification
     create_notification(
         recipient=sender,
-        title=f"Match Request Accepted by {receiver.username}! 🎉",
+        title=f"Match Request Accepted by {receiver.username}!",
         message=f"{receiver.username} accepted your match request for {skill_name}.",
         notification_type="match_accepted",
         link="/meetings",
@@ -116,7 +116,7 @@ def send_match_request_accepted_email(match_request, meeting=None):
     }
 
     _send_async_rendered_email(
-        subject=f"Match Request Accepted by {receiver.username}! 🎉",
+        subject=f"Match Request Accepted by {receiver.username}!",
         template_name="emails/match_request_accepted.html",
         context=context,
         recipient_list=[sender.email],
@@ -176,7 +176,7 @@ def send_meeting_cancelled_email(meeting, cancelled_by, reason: str = ""):
     # Always create an in-app notification
     create_notification(
         recipient=recipient,
-        title=f"Meeting Cancelled: {skill_name} ⚠️",
+        title=f"Meeting Cancelled: {skill_name}",
         message=msg,
         notification_type="meeting_cancelled",
         link="/meetings",
@@ -219,7 +219,7 @@ def send_session_ended_rating_prompt(meeting):
         if not MeetingRating.objects.filter(meeting=meeting, reviewer=user).exists():
             create_notification(
                 recipient=user,
-                title=f"How was your swap with {partner.username}? ⭐",
+                title=f"How was your swap with {partner.username}?",
                 message=f"Your {skill_name} session has ended. Rate your experience to share feedback!",
                 notification_type="rating_prompt",
                 link="/meetings",
@@ -233,7 +233,7 @@ def send_partner_submitted_review_notification(meeting, reviewer, reviewed_user)
 
     create_notification(
         recipient=reviewed_user,
-        title=f"{reviewer.username} reviewed your session! 📝",
+        title=f"{reviewer.username} reviewed your session!",
         message=f"{reviewer.username} left feedback for {skill_name}. Leave your review to unlock it!",
         notification_type="partner_reviewed",
         link="/meetings",
@@ -253,7 +253,7 @@ def send_reviews_revealed_notification(meeting):
     for user, partner in [(sender, receiver), (receiver, sender)]:
         create_notification(
             recipient=user,
-            title="Reviews Revealed! ✨",
+            title="Reviews Revealed!",
             message=f"Feedback from your session with {partner.username} is now live!",
             notification_type="reviews_revealed",
             link="/meetings",
@@ -266,7 +266,7 @@ def send_reviews_revealed_notification(meeting):
                 "skill_name": skill_name,
             }
             _send_async_rendered_email(
-                subject=f"✨ Reviews Revealed for your swap with {partner.username}!",
+                subject=f"Reviews Revealed for your swap with {partner.username}!",
                 template_name="emails/reviews_revealed.html",
                 context=context,
                 recipient_list=[user.email],
@@ -281,7 +281,7 @@ def send_skill_approved_notification(skill):
 
     create_notification(
         recipient=creator,
-        title=f"Skill Approved: '{skill.name}' 🎉",
+        title=f"Skill Approved: '{skill.name}'",
         message=f"An administrator approved '{skill.name}'. It is now visible on your profile and available for swaps!",
         notification_type="skill_approved",
         link="/profile",
@@ -293,7 +293,7 @@ def send_skill_approved_notification(skill):
             "skill_name": skill.name,
         }
         _send_async_rendered_email(
-            subject=f"🎉 Your custom skill '{skill.name}' was approved!",
+            subject=f"Your custom skill '{skill.name}' was approved!",
             template_name="emails/skill_approved.html",
             context=context,
             recipient_list=[creator.email],
