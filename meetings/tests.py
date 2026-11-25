@@ -201,6 +201,106 @@ class ProcessExpiredRatingsTaskTest(TestCase):
         self.assertEqual(prompts.count(), 2)
 
 
+class UserReviewsApiTest(TestCase):
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.client = APIClient()
+        self.user_a = User.objects.create_user(username="reviewer_a", password="testpass123")
+        self.user_b = User.objects.create_user(username="reviewer_b", password="testpass123")
+        self.user_c = User.objects.create_user(username="reviewer_c", password="testpass123")
+        self.skill = Skill.objects.get_or_create(name="Design", defaults={"is_approved": True})[0]
+        self.slot = AvailabilitySlot.objects.create(
+            user=self.user_b,
+            day="Wednesday",
+            start_time="10:00:00",
+            end_time="11:00:00",
+        )
+        self.match_request = MatchRequest.objects.create(
+            sender=self.user_a,
+            receiver=self.user_b,
+            skill=self.skill,
+            selected_slot=self.slot,
+            status="ACCEPTED",
+        )
+        now = timezone.now()
+        self.meeting = Meeting.objects.create(
+            request=self.match_request,
+            session_type="REQUESTED_SKILL",
+            start_time=now - timedelta(hours=2),
+            end_time=now - timedelta(hours=1),
+            status="COMPLETED",
+        )
+        MeetingRating.objects.create(
+            meeting=self.meeting,
+            reviewer=self.user_a,
+            reviewed_user=self.user_b,
+            score=5,
+            feedback="Great session",
+            is_revealed=True,
+        )
+        MeetingRating.objects.create(
+            meeting=self.meeting,
+            reviewer=self.user_b,
+            reviewed_user=self.user_a,
+            score=4,
+            feedback="Very helpful",
+            is_revealed=True,
+        )
+
+        private_request = MatchRequest.objects.create(
+            sender=self.user_c,
+            receiver=self.user_b,
+            skill=self.skill,
+            selected_slot=self.slot,
+            status="ACCEPTED",
+        )
+        private_meeting = Meeting.objects.create(
+            request=private_request,
+            session_type="REQUESTED_SKILL",
+            start_time=now - timedelta(hours=2),
+            end_time=now - timedelta(hours=1),
+            status="COMPLETED",
+        )
+        MeetingRating.objects.create(
+            meeting=private_meeting,
+            reviewer=self.user_c,
+            reviewed_user=self.user_b,
+            score=1,
+            feedback="Private review",
+            is_revealed=False,
+        )
+
+        self.client.force_authenticate(self.user_b)
+        self.url = f"/api/users/{self.user_b.id}/reviews/"
+
+    def test_lists_revealed_reviews_received_or_given(self):
+        received = self.client.get(self.url, {"direction": "received"})
+        given = self.client.get(self.url, {"direction": "given"})
+
+        self.assertEqual(received.status_code, 200)
+        self.assertEqual(len(received.data), 1)
+        self.assertEqual(received.data[0]["reviewer_username"], "reviewer_a")
+        self.assertEqual(received.data[0]["feedback"], "Great session")
+
+        self.assertEqual(given.status_code, 200)
+        self.assertEqual(len(given.data), 1)
+        self.assertEqual(given.data[0]["reviewed_username"], "reviewer_a")
+        self.assertEqual(given.data[0]["feedback"], "Very helpful")
+
+    def test_rejects_invalid_direction(self):
+        response = self.client.get(self.url, {"direction": "all"})
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+
+
 class MeetingCancellationRulesTest(TestCase):
     def setUp(self):
         from rest_framework.test import APIClient
@@ -378,5 +478,3 @@ class MeetingCancellationRulesTest(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 403)
-
-
