@@ -523,3 +523,30 @@ class MeetingReviewsView(APIView):
             "rating": MeetingRatingSerializer(rating, context={'request': request, 'meeting': meeting}).data,
             "meeting": MeetingSerializer(meeting, context={'request': request}).data
         }, status=status.HTTP_201_CREATED)
+
+
+class UserReviewsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        direction = request.query_params.get("direction", "received")
+        if direction not in ("received", "given"):
+            return Response(
+                {"error": "Direction must be 'received' or 'given'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        process_expired_ratings()
+        user_field = "reviewed_user_id" if direction == "received" else "reviewer_id"
+        ratings = (
+            MeetingRating.objects
+            .filter(**{user_field: user_id}, is_revealed=True)
+            .select_related("reviewer", "reviewed_user")
+            .order_by("-created_at")
+        )
+        serializer = MeetingRatingSerializer(
+            ratings,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
