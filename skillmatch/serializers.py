@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (
     Profile,
@@ -227,9 +228,28 @@ class AvailabilitySlotSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
 
+    username = serializers.CharField(
+        max_length=150,
+        error_messages={
+            "blank": "Please enter a username.",
+            "required": "Please enter a username.",
+        },
+    )
+    email = serializers.EmailField(
+        error_messages={
+            "blank": "Please enter an email.",
+            "required": "Please enter an email.",
+            "invalid": "Enter a valid email address.",
+        },
+    )
     password = serializers.CharField(
         write_only=True,
-        min_length=6
+        min_length=6,
+        error_messages={
+            "blank": "Please enter a password.",
+            "required": "Please enter a password.",
+            "min_length": "Password must be at least 6 characters.",
+        },
     )
 
     class Meta:
@@ -241,6 +261,20 @@ class RegisterSerializer(serializers.ModelSerializer):
             "email",
             "password",
         ]
+
+    def validate_username(self, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Please enter a username.")
+        if User.objects.filter(username__iexact=cleaned).exists():
+            raise serializers.ValidationError("That username is already taken.")
+        return cleaned
+
+    def validate_email(self, value: str) -> str:
+        cleaned = value.strip()
+        if User.objects.filter(email__iexact=cleaned).exclude(email="").exists():
+            raise serializers.ValidationError("That email is already registered.")
+        return cleaned
 
     def create(self, validated_data):
 
@@ -258,6 +292,20 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
         return user
+
+
+class CaseInsensitiveTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Allow login with username regardless of letter casing."""
+
+    def validate(self, attrs):
+        username = attrs.get(self.username_field)
+        if isinstance(username, str) and username.strip():
+            match = User.objects.filter(
+                **{f"{self.username_field}__iexact": username.strip()}
+            ).first()
+            if match is not None:
+                attrs[self.username_field] = match.get_username()
+        return super().validate(attrs)
 
 
 class UserSerializer(serializers.ModelSerializer):

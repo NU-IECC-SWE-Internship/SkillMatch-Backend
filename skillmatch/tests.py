@@ -663,6 +663,34 @@ class NewNotificationTriggersTest(TestCase):
         self.assertIn("Welcome", notif.title)
         self.assertEqual(notif.link, "/profile")
 
+    def test_login_username_is_case_insensitive(self):
+        User.objects.create_user(
+            username="CaseUser",
+            email="caseuser@example.com",
+            password="Password123!",
+        )
+        response = self.client.post(
+            "/api/auth/login/",
+            data={"username": "caseuser", "password": "Password123!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+
+    def test_register_rejects_short_password_on_password_field(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            data={
+                "username": "shortpassuser",
+                "email": "short@example.com",
+                "password": "123",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
+
     def test_pass_quiz_creates_skill_verified_notification(self):
         from skillmatch.models import Notification
         user = User.objects.create_user(username="quiztaker", password="password123")

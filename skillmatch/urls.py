@@ -5,10 +5,15 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
+from .serializers import CaseInsensitiveTokenObtainPairSerializer
 from .views import (
     RegisterView,
     MeView,
 )
+
+
+class CaseInsensitiveTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CaseInsensitiveTokenObtainPairSerializer
 
 
 urlpatterns = [
@@ -21,7 +26,7 @@ urlpatterns = [
 
     path(
         "login/",
-        TokenObtainPairView.as_view(),
+        CaseInsensitiveTokenObtainPairView.as_view(),
         name="login"
     ),
 
